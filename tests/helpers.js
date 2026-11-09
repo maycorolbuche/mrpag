@@ -1,12 +1,12 @@
 import { Miniflare } from 'miniflare';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { hashPassword, token } from '../src/security.js';
 const pepper = 'test-pepper-with-at-least-32-characters';
 export const initial = 'MrPag@2026!Inicial';
 export const personal = 'Minha senha pessoal 2026!';
-export async function fixture({ serve = false, bindings = {}, failMail = false } = {}) {
+export async function fixture({ serve = false, bindings = {}, failMail = false, beforeAccounts } = {}) {
   const messages = [];
   const options = {
     modules: true, modulesRules: [{ type: 'ESModule', include: ['**/*.js'] }], scriptPath: 'src/worker.js', compatibilityDate: '2026-08-01',
@@ -33,9 +33,13 @@ export async function fixture({ serve = false, bindings = {}, failMail = false }
   const mf = new Miniflare(options);
   try {
   const db = await mf.getD1Database('DB');
-  const migration = await readFile('migrations/0001_auth.sql', 'utf8');
-  await db.batch(migration.split(';').map(s => s.trim()).filter(Boolean).map(s => db.prepare(s)));
-  await db.prepare('INSERT INTO users(id,name,email,password,version) VALUES (1,?,?,?,?)').bind('Administrador', 'admin@mrpag.local', await hashPassword(initial, pepper), token()).run();
+  for (const name of (await readdir('migrations')).filter(n=>n.endsWith('.sql')).sort()) {
+    if (name.startsWith('0002') && beforeAccounts) await beforeAccounts(db);
+    const migration = await readFile(`migrations/${name}`, 'utf8');
+    await db.exec(migration.replace(/--[^\n]*/g,'').replace(/\n/g,' '));
+  }
+  await db.prepare("INSERT INTO accounts(id,name,created_at,updated_at) VALUES (1,'Minha conta',0,0) ON CONFLICT DO NOTHING").run();
+  await db.prepare('INSERT INTO users(id,name,email,password,version,account_id) VALUES (1,?,?,?,?,1) ON CONFLICT DO NOTHING').bind('Administrador', 'admin@mrpag.local', await hashPassword(initial, pepper), token()).run();
   return { mf, db, messages, agent: agent(mf) };
   } catch(error) { await mf.dispose(); throw error; }
 }

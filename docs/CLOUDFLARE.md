@@ -217,3 +217,11 @@ Referências oficiais:
 - [Secrets](https://developers.cloudflare.com/workers/configuration/secrets/)
 - [Envio com Resend](https://developers.cloudflare.com/workers/tutorials/send-emails-with-resend/)
 - [Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)
+
+## Atualização com contas e clientes
+
+Para quem já configurou a versão anterior, basta aplicar este PR e publicar com `npm run deploy` (ou o deploy automático já configurado com esse comando). Ele aplica `0002_accounts_customers.sql` antes de publicar o Worker. Não recrie o banco, não troque o pepper e não repita o seed.
+
+Cada usuário existente recebe uma conta própria. Senhas e sessões válidas são preservadas, agora com o vínculo à conta. No menu **Minha conta**, personalize o nome. Em **Clientes**, teste cadastro, detalhes, edição, busca, filtro de situação e inativação/reativação. O banco novo continua usando migrations + seed conforme os passos anteriores.
+
+A atualização é uma migration para frente; não há comando de rollback destrutivo incluído. Caso precise reverter uma implantação em produção, preserve um backup/ponto de restauração do D1 e avalie a compatibilidade do código antes de voltar a versão. A migration adiciona estruturas e não apaga dados anteriores.

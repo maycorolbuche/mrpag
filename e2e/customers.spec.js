@@ -1,0 +1,50 @@
+import { test, expect } from '@playwright/test';
+import { fixture } from '../tests/helpers.js';
+let mf,base;
+test.beforeAll(async()=>{
+  const f=await fixture({serve:true});mf=f.mf;base=(await mf.ready).origin;
+  await f.db.prepare('UPDATE users SET must_change=0').run();
+});
+test.afterAll(async()=>{await mf?.dispose();});
+test('account settings and customer lifecycle on desktop/mobile',async({page})=>{
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto(`${base}/login`);
+  await page.getByLabel('Seu e-mail').fill('admin@mrpag.local');
+  await page.getByLabel('Sua senha',{exact:true}).fill('MrPag@2026!Inicial');
+  await page.getByRole('button',{name:'Entrar na minha conta'}).click();
+  await page.getByRole('link',{name:'Minha conta',exact:true}).click();
+  await page.getByLabel('Nome da conta').fill('Minha empresa');
+  await page.getByRole('button',{name:'Salvar alterações'}).click();
+  await expect(page.getByRole('status')).toContainText('Conta atualizada');
+  await page.getByRole('link',{name:'Clientes',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Sua lista começa por aqui.'})).toBeVisible();
+  await page.getByRole('link',{name:'+ Novo cliente',exact:true}).click();
+  await page.getByLabel('Nome / razão social').fill('Cliente de teste');
+  await page.getByLabel('CPF / CNPJ').fill('529.982.247-25');
+  await page.getByLabel('E-mail',{exact:true}).fill('cliente@example.com');
+  await page.getByLabel('Telefone / WhatsApp').fill('(43) 99999-0000');
+  await page.getByLabel('Cidade',{exact:true}).fill('Londrina');
+  await page.getByLabel('UF',{exact:true}).selectOption('PR');
+  for(const width of [320,390,768,1440]){
+    await page.setViewportSize({width,height:900});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  await page.getByRole('button',{name:'Salvar cliente'}).click();
+  await expect(page.getByRole('status')).toContainText('Cliente salvo com sucesso');
+  await page.getByRole('link',{name:'Editar cliente'}).click();
+  await page.getByLabel('Observações').fill('Cliente recorrente.');
+  await page.getByRole('button',{name:'Salvar cliente'}).click();
+  await expect(page.getByText('Cliente recorrente.',{exact:true})).toBeVisible();
+  await page.getByText('Inativar cliente',{exact:true}).click();
+  await page.getByRole('button',{name:'Confirmar inativação'}).click();
+  await expect(page.getByRole('heading',{name:'Cliente inativo'})).toBeVisible();
+  await page.getByRole('link',{name:'Todos os clientes'}).click();
+  await page.getByLabel('Situação',{exact:true}).selectOption('0');
+  await page.getByRole('button',{name:'Filtrar'}).click();
+  await expect(page.getByRole('link',{name:'Cliente de teste',exact:true})).toBeVisible();
+  await page.screenshot({path:'test-results/customers-desktop.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:'test-results/customers-mobile.png',fullPage:true});
+  expect(errors).toEqual([]);
+});

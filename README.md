@@ -76,3 +76,24 @@ Integração executa o Worker real em Miniflare/workerd e D1 local, incluindo co
 - `tests/` e `e2e/`: testes de integração e navegador.
 
 Esta migração substitui Express/SQLite em arquivo pela API Fetch/D1. Contas e senhas antigas não são importadas automaticamente. Como estamos na base inicial, o guia provisiona uma nova conta. Nenhum dado antigo é apagado pelos comandos locais.
+
+## Contas e clientes
+
+A migration `0002_accounts_customers.sql` cria contas e vincula cada usuário preexistente à sua própria conta, preservando senha e sessões válidas. Para um banco novo, o seed cria a conta inicial junto do administrador. Não é necessário repetir o seed em instalações existentes.
+
+Após atualizar o código:
+
+```sh
+npm run db:migrate:local
+npm start
+# Para publicar, o comando já aplica as migrations remotas:
+npm run deploy
+```
+
+No menu **Minha conta**, altere o nome da conta. Em **Clientes**, cadastre pessoa física/jurídica, nome/razão social, nome fantasia, CPF/CNPJ, e-mail, telefone, endereço e observações. Nome, tipo e situação são obrigatórios. CPF/CNPJ e contatos são opcionais nesta etapa; documentos informados têm dígitos verificadores validados, são normalizados e únicos por conta. A mesma pessoa pode ser cadastrada em contas distintas.
+
+A listagem tem busca por nome, nome fantasia, documento, e-mail ou telefone, filtro ativo/inativo, paginação de 20 registros e detalhes/edição. Inativação e reativação preservam o cadastro; não há exclusão definitiva. Datas de cadastro/atualização aparecem em America/Sao_Paulo.
+
+O `account_id` vem do usuário autenticado, nunca de campos/IDs de conta enviados pelo navegador. Consultas de clientes incluem esse escopo, inclusive busca, contagem, detalhe, edição e situação. Sessões também ficam vinculadas à conta: uma mudança administrativa de vínculo invalida a sessão anterior. A troca obrigatória da senha inicial precede o acesso aos módulos.
+
+Esta etapa não cria tela pública de contas/usuários, integrações financeiras, cobranças ou envios de lembretes. A conta inicial é provisionada pelo seed. Novas contas/usuários ainda exigem provisionamento administrativo; a interface de gerenciamento poderá ser adicionada na sequência. As futuras tabelas de cobranças, recorrências e integrações devem manter o mesmo escopo por conta.
