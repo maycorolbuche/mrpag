@@ -1,6 +1,7 @@
 import { render } from './generated/templates.js';
 import { token, digest, hashPassword, verifyPassword, passwordError, limited } from './security.js';
 import { sendRecovery } from './mail.js';
+import { customerRoutes } from './customers.js';
 
 const generic = 'Se o e-mail estiver cadastrado, você receberá um link para redefinir sua senha.';
 const dummy = `pbkdf2-sha256:100000:${'0'.repeat(64)}:${'0'.repeat(64)}`;
@@ -21,7 +22,7 @@ function configuration(env, request) {
   if (env.MAIL_MODE === 'log' && !local) throw new Error('MAIL_MODE=log só é permitido em localhost.');
   return { origin: url.origin, secure: url.protocol === 'https:' };
 }
-async function bodyOf(request) {
+async function bodyOf(request, maxSize = 8192) {
   if (!request.headers.get('content-type')?.startsWith('application/x-www-form-urlencoded')) throw Object.assign(new Error('Formato de formulário inválido.'), { status: 415 });
   const reader = request.body?.getReader();
   let size = 0; const chunks = [];
@@ -29,7 +30,7 @@ async function bodyOf(request) {
     while (true) {
       const { value, done } = await reader.read(); if (done) break;
       size += value.byteLength;
-      if (size > 8192) { await reader.cancel(); throw Object.assign(new Error('Formulário muito grande.'), { status: 413 }); }
+      if (size > maxSize) { await reader.cancel(); throw Object.assign(new Error('Formulário muito grande.'), { status: 413 }); }
       chunks.push(value);
     }
   }
@@ -50,19 +51,20 @@ async function handle(request, env) {
   };
   const cookie = (value, seconds) => `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${seconds}${config.secure ? '; Secure' : ''}`;
   const redirect = target => { const headers = responseHeaders(); headers.set('Location', target); return new Response(null, { status: 303, headers }); };
-  let user = null, session = null, sessionHash = null;
+  let user = null, account = null, session = null, sessionHash = null;
   const rawCookie = request.headers.get('cookie')?.split(';').map(value => value.trim()).find(value => value.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
   if (/^[a-f0-9]{64}$/.test(rawCookie || '')) {
     sessionHash = await digest(rawCookie);
     session = await db.prepare('SELECT * FROM sessions WHERE token=? AND expires>?').bind(sessionHash, Date.now()).first();
     if (session?.user_id) {
-      user = await db.prepare('SELECT * FROM users WHERE id=? AND version=?').bind(session.user_id, session.version).first();
+      user = await db.prepare('SELECT u.* FROM users u JOIN accounts a ON a.id=u.account_id WHERE u.id=? AND u.version=? AND u.account_id=?').bind(session.user_id, session.version, session.account_id).first();
+      if (user) account = await db.prepare('SELECT id,name FROM accounts WHERE id=?').bind(user.account_id).first();
       if (!user) session = null;
     }
   }
   const show = (name, values = {}, status = 200) => {
     const headers = responseHeaders(); headers.set('Content-Type', 'text/html; charset=utf-8');
-    return new Response(render(name, { csrf: session?.csrf || '', user, error: null, success: null, email: '', resetToken: '', ...values }), { status, headers });
+    return new Response(render(name, { csrf: session?.csrf || '', user, account, currentPath: path, saved: url.searchParams.get('saved') === '1', error: null, success: null, email: '', resetToken: '', ...values }), { status, headers });
   };
   const auth = (page, values = {}, status = 200) => show('auth', { page, ...values }, status);
   async function rotate(account, remember = false) {
@@ -71,8 +73,8 @@ async function handle(request, env) {
     const hashed = await digest(raw);
     const statements = [];
     if (sessionHash) statements.push(db.prepare('DELETE FROM sessions WHERE token=?').bind(sessionHash));
-    statements.push(db.prepare('INSERT INTO sessions(token,user_id,version,csrf,expires) VALUES (?,?,?,?,?)')
-      .bind(hashed, account?.id || null, account?.version || null, csrf, now + seconds * 1000));
+    statements.push(db.prepare('INSERT INTO sessions(token,user_id,version,csrf,expires,account_id) VALUES (?,?,?,?,?,?)')
+      .bind(hashed, account?.id || null, account?.version || null, csrf, now + seconds * 1000, account?.account_id || null));
     await db.batch(statements);
     session = { token: hashed, csrf }; sessionHash = hashed;
     cookies.push(cookie(raw, seconds));
@@ -80,12 +82,13 @@ async function handle(request, env) {
   if (request.method !== 'GET' && request.method !== 'POST') return auth('error', { error: 'Método não permitido.' }, 405);
   let body = {};
   if (request.method === 'POST') {
-    body = await bodyOf(request);
+    body = await bodyOf(request, path === '/customers' || path.startsWith('/customers/') ? 32768 : 8192);
     const origin = request.headers.get('origin');
     if ((origin && origin !== config.origin) || !session || body._csrf !== session.csrf) return auth('error', { error: 'Sua sessão expirou. Recarregue a página e tente novamente.' }, 403);
   }
-  const protectedRoute = ['/app', '/account/password', '/logout'].includes(path);
+  const protectedRoute = ['/app', '/account', '/account/password', '/logout'].includes(path) || path === '/customers' || path.startsWith('/customers/');
   if (protectedRoute && !user) return redirect('/login');
+  if (protectedRoute && user.must_change && !['/account/password','/logout'].includes(path)) return redirect('/account/password');
   if (path === '/' && request.method === 'GET') return redirect(user ? '/app' : '/login');
   if (path === '/login' && request.method === 'GET' && user) return redirect('/app');
   const resetMatch = path.match(/^\/reset-password\/([a-f0-9]{64})$/);
@@ -95,7 +98,7 @@ async function handle(request, env) {
   if (path === '/login') {
     if (request.method === 'GET') return auth('login', { success: url.searchParams.get('reset') === '1' ? 'Senha redefinida. Entre com sua nova senha.' : null });
     if (await limited(db, `login-ip:${ip}`, 30) || await limited(db, `login-email:${email}`, 10)) return auth('login', { error: 'Muitas tentativas. Aguarde 15 minutos e tente novamente.', email }, 429);
-    const account = await db.prepare('SELECT * FROM users WHERE email=?').bind(email).first();
+    const account = await db.prepare('SELECT u.* FROM users u JOIN accounts a ON a.id=u.account_id WHERE u.email=?').bind(email).first();
     const valid = await verifyPassword((body.password || '').slice(0, 1024), account?.password || dummy, env.PASSWORD_PEPPER);
     if (!account || !valid || body.password.length > 128) return auth('login', { error: 'E-mail ou senha incorretos.', email }, 422);
     await db.prepare('DELETE FROM attempts WHERE key=?').bind(await digest(`login-email:${email}`)).run();
@@ -140,6 +143,17 @@ async function handle(request, env) {
     if (!results[0].results.length) return auth('expired', {}, 400);
     await rotate(null); return redirect('/login?reset=1');
   }
+  if (path === '/account') {
+    if (request.method === 'GET') return show('account');
+    const name = (body.name || '').trim();
+    if (name.length < 2 || name.length > 120) return show('account', { error: 'Informe um nome para a conta com 2 a 120 caracteres.', account: { ...account, name } }, 422);
+    await db.prepare('UPDATE accounts SET name=?,updated_at=? WHERE id=?').bind(name,Date.now(),user.account_id).run();
+    return redirect('/account?saved=1');
+  }
+  if (path === '/customers' || path.startsWith('/customers/')) {
+    const result = await customerRoutes({ request, url, db, user, account, body, show, redirect });
+    if (result) return result;
+  }
   if (path === '/app' && request.method === 'GET') return user.must_change ? redirect('/account/password') : show('dashboard');
   if (path === '/account/password') {
     if (request.method === 'GET') return show('password');
@@ -155,7 +169,7 @@ async function handle(request, env) {
       db.prepare('DELETE FROM sessions WHERE user_id=(SELECT id FROM users WHERE version=?)').bind(version),
     ]);
     if (!results[0].results.length) return show('password', { error: 'Sua senha foi alterada em outra sessão. Entre novamente.' }, 409);
-    await rotate({ id: user.id, version }); return redirect('/app?password=updated');
+    await rotate({ id: user.id, version, account_id: user.account_id }); return redirect('/app?password=updated');
   }
   return auth('error', { error: 'Página não encontrada.' }, 404);
 }
