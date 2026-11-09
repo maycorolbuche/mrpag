@@ -65,3 +65,21 @@ Testes de integração com banco isolado em memória cobrem autenticação, sess
 - `tests/`: testes automatizados.
 
 A página inicial é uma base para os próximos módulos, sem dados financeiros fictícios.
+
+## Servidor encerra logo após iniciar
+
+Se a porta já estiver ocupada, a inicialização informa o erro e encerra com código 1. Nenhuma mensagem de sucesso é exibida antes de o servidor realmente escutar. No PowerShell, consulte a porta e o processo:
+
+```powershell
+Get-NetTCPConnection -LocalPort 3000 -State Listen | Select-Object LocalAddress,LocalPort,OwningProcess
+Get-Process -Id <OwningProcess>
+```
+
+Caso já exista uma instância do MR Pag, acesse http://localhost:3000 ou encerre-a pelo terminal em que foi iniciada. Para usar outra porta, configure no `.env` e execute `npm start` novamente:
+
+```dotenv
+PORT=3001
+APP_URL=http://localhost:3001
+```
+
+O aviso `ExperimentalWarning: SQLite` de algumas versões do Node não encerra o servidor. Para verificar a versão e o resultado da execução no PowerShell: `node -v` e, após `npm start` retornar, `$LASTEXITCODE`.
