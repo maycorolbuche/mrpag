@@ -1,13 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { createApp } from '../src/app.js';
-import { openDatabase } from '../src/database.js';
-let app, server, base; const messages = [];
+import { fixture } from '../tests/helpers.js';
+let mf, base, messages;
 test.beforeAll(async () => {
-  app = await createApp({ env: {}, database: openDatabase(':memory:'), sendMail: async message => messages.push(message) });
-  server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
-  base = `http://127.0.0.1:${server.address().port}`;
+  const f = await fixture({ serve: true }); mf = f.mf; messages = f.messages; base = (await mf.ready).origin;
 });
-test.afterAll(async () => { await new Promise(resolve => server.close(resolve)); app.locals.db.close(); });
+test.afterAll(async () => { await mf?.dispose(); });
 test('desktop and mobile authentication journey', async ({ page }) => {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`${base}/login`);
@@ -39,7 +36,7 @@ test('desktop and mobile authentication journey', async ({ page }) => {
   await page.getByLabel('Seu e-mail').fill('admin@mrpag.local');
   await page.getByRole('button', { name: 'Enviar link' }).click();
   await expect(page.getByRole('status')).toContainText('Se o e-mail estiver cadastrado');
-  await page.goto(base + new URL(messages[0].url).pathname);
+  await page.goto(new URL(messages[0].text.match(/http:\/\/[^\s]+\/reset-password\/[a-f0-9]+/)[0]).href);
   await page.getByLabel('Nova senha', { exact: true }).fill('Minha outra senha pessoal!');
   await page.getByLabel('Confirme a nova senha').fill('Minha outra senha pessoal!');
   await page.getByRole('button', { name: 'Salvar nova senha' }).click();

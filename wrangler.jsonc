@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mrpag",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "build": { "command": "npm run build" },
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "mrpag-db",
+    "database_id": "00000000-0000-0000-0000-000000000000",
+    "migrations_dir": "migrations"
+  }],
+  "vars": {
+    "APP_URL": "https://mrpag.SEU-SUBDOMINIO.workers.dev",
+    "MAIL_MODE": "disabled"
+  },
+  "triggers": { "crons": ["0 4 * * *"] },
+  "observability": { "enabled": true }
+}

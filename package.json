@@ -1,12 +1,20 @@
 {
   "name": "mrpag",
   "version": "1.0.0",
-  "description": "Autentica\u00e7\u00e3o e base do MR Pag",
+  "description": "Autenticação e base do MR Pag",
   "scripts": {
-    "test": "node --test tests/*.test.js",
-    "start": "node --env-file-if-exists=.env src/server.js",
-    "dev": "node --env-file-if-exists=.env --watch src/server.js",
-    "test:browser": "playwright test"
+    "build": "node scripts/build.mjs",
+    "start": "wrangler dev --port 8787",
+    "dev": "wrangler dev --port 8787",
+    "cf:login": "wrangler login",
+    "db:migrate:local": "wrangler d1 migrations apply mrpag-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply mrpag-db --remote",
+    "db:seed:local": "node --env-file-if-exists=.dev.vars scripts/seed.mjs",
+    "db:seed:remote": "node --env-file=.seed.vars scripts/seed.mjs --remote",
+    "deploy": "npm run db:migrate:remote && wrangler deploy",
+    "check": "wrangler deploy --dry-run --outdir .worker-check",
+    "test": "npm run build && node --test tests/*.test.js",
+    "test:browser": "npm run build && playwright test"
   },
   "keywords": [],
   "author": "",
@@ -16,16 +24,13 @@
     "node": ">=24.0.0"
   },
   "dependencies": {
-    "bootstrap": "^5.3.8",
-    "ejs": "^7.0.2",
-    "express": "^5.3.0",
-    "express-session": "^1.19.0",
-    "helmet": "^8.3.0",
-    "nodemailer": "^10.4.0"
+    "bootstrap": "^5.3.8"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",
-    "supertest": "^7.3.2"
+    "ejs": "^3.1.10",
+    "miniflare": "^4.20260730.0",
+    "wrangler": "^4.159.0"
   },
   "private": true
 }
