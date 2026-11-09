@@ -1,85 +1,78 @@
-# MR Pag
+# MR Pag — Cloudflare Workers + D1
 
-Base de autenticação com Node.js 24, Express 5, SQLite e Bootstrap 5.3.8 servido localmente. Interface em português e responsiva; sem cadastro público.
+Aplicação única com páginas renderizadas no Worker, Bootstrap 5.3.8 e assets no mesmo deploy. D1 persiste usuários, sessões, tokens de recuperação e limites de tentativas. Não é necessário separar frontend/API ou criar projeto no Pages.
 
-## Executar
+## Rodar localmente (PowerShell)
 
-```sh
+Requer Node.js 24 ou superior. Não precisa entrar na conta Cloudflare para testar localmente.
+
+```powershell
 npm ci
-cp .env.example .env
+Copy-Item .dev.vars.example .dev.vars
+npm run db:migrate:local
+npm run db:seed:local
 npm start
 ```
 
-Abra http://localhost:3000. No Windows, use `copy .env.example .env`.
+Abra **http://localhost:8787**. Usuário: `admin@mrpag.local`; senha: `MrPag@2026!Inicial`. A troca é obrigatória no primeiro acesso. Em `MAIL_MODE=log`, o link de recuperação aparece no terminal, somente em ambiente localhost. Este modo é bloqueado em domínio público.
 
-Primeiro acesso local:
+`npm start` e `npm run dev` executam o Wrangler, com recarregamento automático, build de templates e assets. O estado local fica em `.wrangler/state`, separado do banco remoto. O antigo `.env` e `data/mrpag.sqlite` não são usados. Não exclua um banco anterior se quiser conservar seus dados.
 
-- E-mail: `admin@mrpag.local`
-- Senha: `MrPag@2026!Inicial`
+## Publicar e avaliar no Cloudflare
 
-A senha deve ser trocada antes de acessar a página inicial. A conta é criada apenas se o banco não tiver usuários; reiniciar não redefine credenciais. Personalize `ADMIN_EMAIL` e `ADMIN_PASSWORD` antes da primeira execução para usar um e-mail real. Não há rota de cadastro.
+Siga [o passo a passo completo](docs/CLOUDFLARE.md), com criação do D1, secrets, administrador, envio de e-mail, deploy e integração opcional com GitHub.
 
-## Funcionalidades
-
-- Login por e-mail e senha, mostrar/ocultar senha e opção lembrar por 30 dias (normal: 2 horas).
-- Logout por POST, regeneração da sessão no login e após mudanças de senha.
-- Alterar senha validando senha atual, confirmação e tamanho de 12 a 128 caracteres.
-- Recuperação por e-mail, link com validade de 30 minutos e uso único; apenas o hash do token fica no banco.
-- Mudanças de senha encerram as demais sessões e invalidam links de recuperação pendentes.
-- Senhas com scrypt e salt aleatório, CSRF, cookies HttpOnly/SameSite, CSP e consultas parametrizadas.
-- Limites persistentes por IP/conta para login, recuperação e alteração. Recuperação sempre responde de forma genérica, inclusive diante de falha do SMTP.
-
-## Recuperação de senha local
-
-Sem `SMTP_HOST` em desenvolvimento, os e-mails são gravados em `data/mail/*.json`, fora da pasta pública. Abra o arquivo mais recente e copie o link do campo `text`. O link usa `APP_URL`. A resposta da tela nunca revela o link. O endereço inicial `admin@mrpag.local` é apenas para testes locais.
-
-## Produção e SMTP
-
-1. Use Node.js 24 ou superior com suporte a `node:sqlite`. O servidor requer processo Node persistente; não roda como PHP nem hospedagem estática.
-2. Configure `NODE_ENV=production`, `APP_URL=https://seu-dominio`, `SESSION_SECRET` aleatório (mínimo 32 caracteres) e, para banco vazio, `ADMIN_EMAIL` real e `ADMIN_PASSWORD` próprios.
-3. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` e `MAIL_FROM` com remetente autorizado. Porta 587 usa STARTTLS obrigatório; porta 465 requer `SMTP_SECURE=true` (TLS direto). Certificados são verificados.
-4. Termine HTTPS em proxy confiável. Configure `TRUST_PROXY_HOPS` somente conforme o número de proxies da sua instalação (por exemplo, `1` para um proxy). O serviço Node deve ficar acessível apenas pelo proxy. Cookies são Secure em produção.
-5. Mantenha `DATABASE_PATH` em volume persistente privado com permissão restrita. O SQLite guarda usuários, sessões, tokens e limites. Faça backup consistente usando a API de backup do SQLite; não copie apenas o arquivo principal enquanto o banco estiver ativo em WAL. Esta base usa uma instância do app; planeje armazenamento compartilhado para escalar.
-6. Configure SMTP e teste o recebimento com seu provedor antes de disponibilizar a recuperação. Falhas registram `password_reset_delivery_failed` sem expor o token. Não existe fallback de e-mail em arquivo em produção.
-
-Gere o segredo: `node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"`.
-
-## Testes
+Comandos de uso recorrente:
 
 ```sh
+npm run cf:login
+npm run db:migrate:remote
+npm run db:seed:remote
+npm run deploy
+```
+
+`npm run deploy` aplica migrations remotas antes de publicar o Worker e seus assets. O seed é separado e nunca sobrescreve uma conta existente. Os recursos remotos não são criados pelos testes nem pelo build.
+
+## Autenticação
+
+Login, lembrar por 30 dias (normal: 2 horas), logout, troca inicial obrigatória, alteração validando senha atual e recuperação por e-mail. Links expiram em 30 minutos, têm uso único inclusive sob concorrência e são guardados como hash. Mudanças de senha invalidam outras sessões e links pendentes. Sem cadastro público.
+
+Cookies opacos de 256 bits, apenas hash persistido em D1, HttpOnly/SameSite e Secure em HTTPS. Formulários têm CSRF e validação de Origin. Limites de tentativas persistem no D1 por IP e conta. A configuração de origem pública é fixa, evitando construir links de recuperação com um Host fornecido pelo visitante.
+
+As senhas agora usam PBKDF2-SHA256 (100.000 iterações, limite do WebCrypto do Workers), salt aleatório e HMAC com um `PASSWORD_PEPPER` secreto fora do banco. Esse segredo deve ser preservado: alterá-lo invalida a verificação das senhas existentes; a recuperação poderá definir novas senhas com o novo segredo. Não há SESSION_SECRET: a sessão é um token aleatório opaco, não um objeto assinado no cookie.
+
+O Cron diário remove sessões, tokens e contadores expirados. A validade também é verificada em cada uso; não depende da execução do Cron.
+
+## E-mails
+
+- `MAIL_MODE=disabled`: login/troca funcionam; recuperação informa que não está configurada.
+- `MAIL_MODE=log`: teste exclusivamente local, com link no terminal.
+- `MAIL_MODE=resend`: envio real via HTTPS usando `RESEND_API_KEY` e `MAIL_FROM`.
+
+A resposta da recuperação é genérica para e-mail existente/desconhecido e falhas do provedor. Um erro de envio invalida o token gerado e registra somente um código de erro. Não há envio SMTP/Nodemailer nesta versão.
+
+## Validação
+
+```sh
+npm ci
 npm test
 npx playwright install chromium
 npm run test:browser
+npm run check
 ```
 
-Testes de integração com banco isolado em memória cobrem autenticação, sessão, CSRF, troca inicial, recuperação, validade/uso único, revogação de sessões e limites. O teste de navegador exercita login, troca obrigatória, logout, recuperação, novo login e ausência de rolagem horizontal em cinco larguras (320 a 1440 px). GitHub Actions executa ambos em Node 24. O envio SMTP real depende das credenciais do ambiente e não é exercitado por estes testes.
+Integração executa o Worker real em Miniflare/workerd e D1 local, incluindo concorrência no uso único de tokens. O teste de navegador percorre login, alteração obrigatória, logout, recuperação e novo login, com verificação de largura de 320 a 1440 px. O envio externo é simulado nos testes; receber e-mail real requer configurar e testar seu provedor. `check` gera o pacote final com Wrangler em dry-run, sem publicar.
 
-## Estrutura
+## Organização
 
-- `src/app.js`: rotas e políticas de autenticação.
-- `src/database.js`: criação idempotente de tabelas e store de sessões SQLite.
-- `src/security.js`: senhas, tokens e limites.
-- `src/mail.js`: SMTP e caixa de saída local.
-- `views/`: páginas renderizadas no servidor.
-- `public/`: estilos e interação progressiva (formulários funcionam sem JavaScript).
-- `tests/`: testes automatizados.
+- `src/worker.js`: entrada fetch/cron, rotas e sessões.
+- `src/security.js`: WebCrypto, senhas, tokens e limites.
+- `src/mail.js`: envio por API.
+- `migrations/`: esquema D1 versionado.
+- `views/`: templates EJS mantidos como fonte; compilados antes do deploy.
+- `scripts/build.mjs`: transforma templates em JS estático e prepara assets. O Worker não usa eval nem lê templates em disco.
+- `scripts/seed.mjs`: provisionamento do primeiro usuário via Wrangler, com arquivo temporário removido ao final.
+- `public/`: estilos, interação progressiva e ícone.
+- `tests/` e `e2e/`: testes de integração e navegador.
 
-A página inicial é uma base para os próximos módulos, sem dados financeiros fictícios.
-
-## Servidor encerra logo após iniciar
-
-Se a porta já estiver ocupada, a inicialização informa o erro e encerra com código 1. Nenhuma mensagem de sucesso é exibida antes de o servidor realmente escutar. No PowerShell, consulte a porta e o processo:
-
-```powershell
-Get-NetTCPConnection -LocalPort 3000 -State Listen | Select-Object LocalAddress,LocalPort,OwningProcess
-Get-Process -Id <OwningProcess>
-```
-
-Caso já exista uma instância do MR Pag, acesse http://localhost:3000 ou encerre-a pelo terminal em que foi iniciada. Para usar outra porta, configure no `.env` e execute `npm start` novamente:
-
-```dotenv
-PORT=3001
-APP_URL=http://localhost:3001
-```
-
-O aviso `ExperimentalWarning: SQLite` de algumas versões do Node não encerra o servidor. Para verificar a versão e o resultado da execução no PowerShell: `node -v` e, após `npm start` retornar, `$LASTEXITCODE`.
+Esta migração substitui Express/SQLite em arquivo pela API Fetch/D1. Contas e senhas antigas não são importadas automaticamente. Como estamos na base inicial, o guia provisiona uma nova conta. Nenhum dado antigo é apagado pelos comandos locais.
