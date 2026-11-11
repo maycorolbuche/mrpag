@@ -6,6 +6,7 @@ permissions:
   contents: read
 jobs:
   test:
+    name: "CI / Validação"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
