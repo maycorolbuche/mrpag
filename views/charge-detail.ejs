@@ -25,15 +25,7 @@
       <p>Confira no painel do Mercado Pago se a emissão foi concluída antes de criar outra cobrança.</p>
     <% } %>
   </section>
-  <% if (charge.status === 'pending' && (charge.pix_image || charge.pix_code)) { %>
-    <section class="settings-card">
-      <h2>Pix</h2>
-      <% if (charge.pix_image) { %><img class="img-fluid mb-3" width="200" height="200" alt="QR Code Pix" src="data:image/png;base64,<%= charge.pix_image %>"><% } %>
-      <% if (charge.pix_code) { %>
-        <label for="pix-code" class="form-label">Pix copia e cola</label>
-        <textarea id="pix-code" class="form-control" rows="4" readonly><%= charge.pix_code %></textarea>
-      <% } %>
-    </section>
-  <% } %>
+  <%- include('charge-pix') %>
 </div>
+<% if (publicUrl) { %><%- include('charge-email-history') %><% } %>
 </main></body></html>

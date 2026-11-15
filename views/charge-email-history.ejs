@@ -1,0 +1,32 @@
+<section class="settings-card mt-4">
+  <h2>Link e e-mails da cobrança</h2>
+  <p class="text-break">Link de pagamento <a href="<%= publicUrl %>" rel="noreferrer"><%= publicUrl %></a></p>
+  <% if (canSendEmail) { %>
+    <form method="post" action="/charges/<%= charge.id %>/email" class="mb-3">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <input type="hidden" name="mail_request_id" value="<%= mailRequestId %>">
+      <button class="btn btn-light" type="submit"><%= emailHistory.length ? 'Enviar novamente por e-mail' : 'Enviar por e-mail' %></button>
+      <span class="ms-2 text-break"><%= charge.customer_email %></span>
+    </form>
+  <% } %>
+  <% if (emailHistory.length) { %>
+    <% const statuses = { queued: 'Na fila', sending: 'Em envio', sent: 'Aceito pelo serviço de e-mail', failed: 'Falha no envio', skipped: 'Envio dispensado' };
+       const results = { sent: 'Aceito pelo serviço de e-mail', interrupted: 'Tentativa interrompida', charge_unavailable: 'Cobrança indisponível para pagamento', retry_window_closed: 'Prazo de tentativa encerrado', mail_not_configured: 'Envio de e-mail não configurado', mail_transport_error: 'Falha de comunicação com o serviço de e-mail' }; %>
+    <div class="table-responsive">
+      <table class="table">
+        <thead><tr><th>Data</th><th>Destinatário</th><th>Envio</th><th>Tentativa</th><th>Situação</th></tr></thead>
+        <tbody>
+          <% for (const entry of emailHistory) { %>
+            <tr>
+              <td><%= new Date(entry.started_at || entry.created_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) %></td>
+              <td class="text-break"><%= entry.recipient %></td>
+              <td><%= entry.kind === 'initial' ? 'Automático' : 'Manual' %></td>
+              <td><%= entry.number || '—' %></td>
+              <td><%= entry.result ? (results[entry.result] || ('Falha do serviço (HTTP ' + entry.result.slice(-3) + ')')) : statuses[entry.status] %><% if (entry.result && entry.status === 'queued') { %> · nova tentativa agendada<% } %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } else { %><p>Nenhum envio registrado.</p><% } %>
+</section>

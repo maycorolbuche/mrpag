@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cobrança Pix · MR Pag</title>
+  <link rel="stylesheet" href="/assets/bootstrap/bootstrap.min.css">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="workspace-body">
+<main class="workspace-main">
+  <% if (charge) { %>
+    <h1 class="workspace-title">Cobrança Pix</h1>
+    <div class="settings-grid">
+      <section class="settings-card">
+        <dl class="customer-data">
+          <div><dt>Recebedor</dt><dd class="text-break"><%= charge.issuer %></dd></div>
+          <div><dt>Valor</dt><dd><%= charge.amount %></dd></div>
+          <div><dt>Vencimento</dt><dd><%= charge.date %></dd></div>
+          <div><dt>Situação</dt><dd><strong><%= charge.label %></strong></dd></div>
+        </dl>
+        <% if (charge.status === 'pending') { %>
+          <p>Depois de pagar, atualize a página para conferir a confirmação.</p>
+          <a class="btn btn-light" href="">Atualizar situação</a>
+        <% } %>
+      </section>
+      <%- include('charge-pix') %>
+    </div>
+  <% } else { %>
+    <h1 class="workspace-title">Cobrança não encontrada</h1>
+    <p>Confira o link recebido.</p>
+  <% } %>
+</main>
+</body>
+</html>

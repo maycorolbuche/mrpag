@@ -1,8 +1,9 @@
+import { dispatchChargeEmails } from './charge-emails.js';
 import { render } from './generated/templates.js';
 import { token, digest, hashPassword, verifyPassword, passwordError, limited } from './security.js';
 import { sendRecovery } from './mail.js';
 import { customerRoutes } from './customers.js';
-import { paymentRoutes, paymentWebhook } from './payments.js';
+import { paymentRoutes, paymentWebhook, publicPayment } from './payments.js';
 
 const generic = 'Se o e-mail estiver cadastrado, você receberá um link para redefinir sua senha.';
 const dummy = `pbkdf2-sha256:100000:${'0'.repeat(64)}:${'0'.repeat(64)}`;
@@ -51,6 +52,15 @@ async function handle(request, env) {
     for (const cookie of cookies) headers.append('Set-Cookie', cookie);
     return headers;
   };
+  if (path.startsWith('/pay/')) {
+    const headers = responseHeaders();
+    headers.set('Referrer-Policy', 'no-referrer');
+    headers.set('X-Robots-Tag', 'noindex, nofollow');
+    if (request.method !== 'GET') return new Response(null, { status: 405, headers });
+    const charge = await publicPayment(db, path.slice('/pay/'.length));
+    headers.set('Content-Type', 'text/html; charset=utf-8');
+    return new Response(render('public-payment', { charge }), { status: charge ? 200 : 404, headers });
+  }
   const cookie = (value, seconds) => `${cookieName}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${seconds}${config.secure ? '; Secure' : ''}`;
   const redirect = target => { const headers = responseHeaders(); headers.set('Location', target); return new Response(null, { status: 303, headers }); };
   let user = null, account = null, session = null, sessionHash = null;
@@ -194,5 +204,13 @@ export default {
       return new Response(`Não foi possível concluir. Tente novamente em alguns instantes. Referência: ${errorId}`, { status, headers: { ...securityHeaders, 'Content-Type': 'text/plain; charset=utf-8' } });
     }
   },
-  async scheduled(event, env, ctx) { ctx.waitUntil(cleanup(env)); },
+  async scheduled(event, env, ctx) {
+    if (event.cron === '*/5 * * * *') {
+      if (env.MAIL_MODE !== 'resend') return;
+      const { origin } = configuration(env, new Request('https://scheduled.invalid'));
+      ctx.waitUntil(dispatchChargeEmails(env, origin));
+    } else {
+      ctx.waitUntil(cleanup(env));
+    }
+  },
 };
