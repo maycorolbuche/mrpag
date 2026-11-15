@@ -1,4 +1,4 @@
-import { hashPassword, token, passwordError } from '../src/security.js';
+import { hashPassword, token } from '../src/security.js';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,11 +11,14 @@ const defaultPassword = 'MrPag@2026!Inicial';
 const email = (process.env[emailKey] ?? (remote ? '' : 'admin@mrpag.local')).trim().toLowerCase();
 const password = process.env[passwordKey] ?? (remote ? '' : defaultPassword);
 const pepper = process.env[pepperKey];
-if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || passwordError(password, password)) {
-  throw new Error(`Defina ${emailKey} e ${passwordKey} (12 a 128 caracteres).`);
+if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  throw new Error(`Defina ${emailKey}.`);
 }
-if (remote && (password === defaultPassword || email.endsWith('.local'))) {
-  throw new Error('No remoto, use e-mail real e senha própria.');
+if (password.length === 0) {
+  throw new Error(`Preencha ${passwordKey} com a senha inicial.`);
+}
+if (remote && email.endsWith('.local')) {
+  throw new Error('No remoto, use um e-mail real.');
 }
 if (!pepper || pepper.length < 32) {
   throw new Error(`Defina ${pepperKey} com pelo menos 32 caracteres.`);

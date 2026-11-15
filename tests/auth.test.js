@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture, agent, post, login, csrf, initial, personal } from './helpers.js';
-import { digest, limited } from '../src/security.js';
+import { digest, hashPassword, limited } from '../src/security.js';
 async function setup(t) { const f = await fixture(); t.after(() => f.mf.dispose()); return f; }
 
 test('Worker serves pages, assets, security headers, private routes and CSRF', async t => {
@@ -110,4 +110,23 @@ test('scheduled cleanup removes expired data and preserves live sessions', async
   assert.equal((await db.prepare("SELECT count(*) n FROM sessions WHERE token='old'").first()).n, 0);
   assert.equal((await db.prepare('SELECT count(*) n FROM resets').first()).n, 0);
   assert.equal((await a.request('/account/password')).status, 200);
+});
+
+test('initial passwords can be used outside the policy for new passwords', async t => {
+  const { db, mf } = await setup(t);
+  const pepper = 'test-pepper-with-at-least-32-characters';
+  for (const initialPassword of ['1', 'a'.repeat(1025)]) {
+    await db.prepare('UPDATE users SET password=?, must_change=1 WHERE id=1')
+      .bind(await hashPassword(initialPassword, pepper)).run();
+    const browser = agent(mf);
+    const signedIn = await login(browser, initialPassword);
+    assert.equal(signedIn.headers.get('location'), '/account/password');
+    const change = password => post(browser, '/account/password', '/account/password', {
+      current: initialPassword, password, confirmation: password,
+    });
+    const rejected = await change('2');
+    assert.equal(rejected.status, 422);
+    assert.match(rejected.text, /12 a 128 caracteres/);
+    assert.equal((await change(personal)).headers.get('location'), '/app?password=updated');
+  }
 });

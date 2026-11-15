@@ -99,8 +99,8 @@ async function handle(request, env) {
     if (request.method === 'GET') return auth('login', { success: url.searchParams.get('reset') === '1' ? 'Senha redefinida. Entre com sua nova senha.' : null });
     if (await limited(db, `login-ip:${ip}`, 30) || await limited(db, `login-email:${email}`, 10)) return auth('login', { error: 'Muitas tentativas. Aguarde 15 minutos e tente novamente.', email }, 429);
     const account = await db.prepare('SELECT u.* FROM users u JOIN accounts a ON a.id=u.account_id WHERE u.email=?').bind(email).first();
-    const valid = await verifyPassword((body.password || '').slice(0, 1024), account?.password || dummy, env.PASSWORD_PEPPER);
-    if (!account || !valid || body.password.length > 128) return auth('login', { error: 'E-mail ou senha incorretos.', email }, 422);
+    const valid = await verifyPassword(body.password || '', account?.password || dummy, env.PASSWORD_PEPPER);
+    if (!account || !valid) return auth('login', { error: 'E-mail ou senha incorretos.', email }, 422);
     await db.prepare('DELETE FROM attempts WHERE key=?').bind(await digest(`login-email:${email}`)).run();
     await rotate(account, body.remember === 'on');
     return redirect(account.must_change ? '/account/password' : '/app');
@@ -159,7 +159,7 @@ async function handle(request, env) {
     if (request.method === 'GET') return show('password');
     if (await limited(db, `change:${user.id}`, 10)) return show('password', { error: 'Muitas tentativas. Aguarde 15 minutos.' }, 429);
     let error = passwordError(body.password, body.confirmation);
-    if (!error && !await verifyPassword((body.current || '').slice(0, 1024), user.password, env.PASSWORD_PEPPER)) error = 'A senha atual está incorreta.';
+    if (!error && !await verifyPassword(body.current || '', user.password, env.PASSWORD_PEPPER)) error = 'A senha atual está incorreta.';
     if (!error && await verifyPassword(body.password, user.password, env.PASSWORD_PEPPER)) error = 'Escolha uma senha diferente da atual.';
     if (error) return show('password', { error }, 422);
     const hash = await hashPassword(body.password, env.PASSWORD_PEPPER), version = token();

@@ -14,4 +14,4 @@ SEED_PASSWORD="MrPag@2026!Inicial"
 # Remova estes valores do arquivo após o comando npm run db:seed:remote.
 # REMOTE_PASSWORD_PEPPER=mesmo-secret-PASSWORD_PEPPER-do-Worker
 # REMOTE_SEED_EMAIL=seu-email@dominio.com.br
-# REMOTE_SEED_PASSWORD="Senha inicial com pelo menos 12 caracteres"
+# REMOTE_SEED_PASSWORD="Sua senha inicial"
