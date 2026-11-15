@@ -170,7 +170,7 @@ async function handle(request, env) {
     return redirect('/account?saved=1');
   }
   if (path === '/account/notifications') {
-    return notificationSettings({ request, db, accountId: user.account_id, body, show, redirect });
+    return notificationSettings({ request, url, env, db, accountId: user.account_id, actorEmail: user.email, body, show, redirect });
   }
   if (isPaymentRoute) {
     const context = { request, url, db, env, accountId: user.account_id, actorEmail: user.email, origin: config.origin, sessionHash, body, show, redirect };
