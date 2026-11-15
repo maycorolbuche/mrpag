@@ -1,3 +1,4 @@
+import { dispatchRecurringCharges, recurringRoutes } from './recurring-charges.js';
 import { dispatchChargeEmails } from './charge-emails.js';
 import { render } from './generated/templates.js';
 import { token, digest, hashPassword, verifyPassword, passwordError, limited } from './security.js';
@@ -164,7 +165,9 @@ async function handle(request, env) {
     return redirect('/account?saved=1');
   }
   if (isPaymentRoute) {
-    const result = await paymentRoutes({ request, url, db, env, accountId: user.account_id, actorEmail: user.email, origin: config.origin, sessionHash, body, show, redirect });
+    const context = { request, url, db, env, accountId: user.account_id, actorEmail: user.email, origin: config.origin, sessionHash, body, show, redirect };
+    const result = path === '/charges/recurring' || path.startsWith('/charges/recurring/')
+      ? await recurringRoutes(context) : await paymentRoutes(context);
     if (result) return result;
   }
   if (path === '/customers' || path.startsWith('/customers/')) {
@@ -206,9 +209,11 @@ export default {
   },
   async scheduled(event, env, ctx) {
     if (event.cron === '*/5 * * * *') {
-      if (!mailSendingEnabled(env)) return;
-      const { origin } = configuration(env, new Request('https://scheduled.invalid'));
-      ctx.waitUntil(dispatchChargeEmails(env, origin));
+      ctx.waitUntil(dispatchRecurringCharges(env));
+      if (mailSendingEnabled(env)) {
+        const { origin } = configuration(env, new Request('https://scheduled.invalid'));
+        ctx.waitUntil(dispatchChargeEmails(env, origin));
+      }
     } else {
       ctx.waitUntil(cleanup(env));
     }

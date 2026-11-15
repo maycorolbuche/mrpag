@@ -1,0 +1,27 @@
+<%- include('header', {title:'Recorrências'}) %>
+<a class="back-link" href="/charges">← Cobranças</a>
+<div class="page-heading">
+  <h1 class="workspace-title">Recorrências</h1>
+  <a class="btn btn-primary" href="/charges/recurring/new">Nova recorrência</a>
+</div>
+<section class="settings-card">
+  <% if (!seriesRows.length) { %><p class="mb-0">Nenhuma recorrência nesta página.</p><% } else { %>
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead><tr><th>Descrição</th><th>Cliente</th><th>Valor</th><th>Frequência</th><th>Próximo vencimento</th><th>Situação</th></tr></thead>
+        <tbody>
+          <% for (const item of seriesRows) { %>
+            <tr><td><a href="/charges/recurring/<%= item.id %>"><%= item.description %></a></td><td><%= item.customer_name %></td><td><%= item.amount %></td><td><%= item.frequency %></td><td><%= item.status === 'ended' ? '—' : item.due %></td><td><%= item.state %></td></tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+  <% if (chargePage > 1 || nextPage) { %>
+    <nav class="d-flex gap-2" aria-label="Paginação">
+      <% if (chargePage > 1) { %><a class="btn btn-light" href="?page=<%= chargePage - 1 %>">Anterior</a><% } %>
+      <% if (nextPage) { %><a class="btn btn-light" href="?page=<%= chargePage + 1 %>">Próxima</a><% } %>
+    </nav>
+  <% } %>
+</section>
+</main></body></html>

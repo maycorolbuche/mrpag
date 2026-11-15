@@ -9,6 +9,7 @@
       <div><dt>Valor</dt><dd><%= charge.amount %></dd></div>
       <div><dt>Vencimento</dt><dd><%= charge.date %></dd></div>
       <div><dt>Situação</dt><dd><strong><%= charge.label %></strong></dd></div>
+      <% if (charge.recurring_series_id) { %><div><dt>Recorrência</dt><dd><a href="/charges/recurring/<%= charge.recurring_series_id %>">Ver série</a></dd></div><% } %>
       <% if (charge.paid_at) { %>
         <div><dt>Pago em</dt><dd><%= new Date(charge.paid_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) %></dd></div>
       <% } %>
