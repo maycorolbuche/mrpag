@@ -7,7 +7,7 @@
     "start": "wrangler dev --port 8787",
     "dev": "wrangler dev --port 8787",
     "cf:login": "wrangler login",
-    "db:migrate:local": "wrangler d1 migrations apply mrpag-db --local",
+    "db:migrate:local": "wrangler d1 migrations apply mrpag-db --local && npm run db:seed:local",
     "db:migrate:remote": "wrangler d1 migrations apply mrpag-db --remote",
     "db:seed:local": "node --env-file-if-exists=.dev.vars scripts/seed.mjs",
     "db:seed:remote": "node --env-file=.seed.vars scripts/seed.mjs --remote",

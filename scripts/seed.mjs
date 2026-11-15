@@ -10,8 +10,16 @@ if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || passwordError(password, passwor
 if (remote && (password === 'MrPag@2026!Inicial' || email.endsWith('.local'))) throw new Error('No remoto, use e-mail real e senha própria.');
 const hash = await hashPassword(password, process.env.PASSWORD_PEPPER);
 const sqlString = value => `'${value.replaceAll("'", "''")}'`;
-// Fixed ID prevents repeated seeding from creating another account or overwriting credentials.
-const sql = `INSERT INTO accounts(id,name,created_at,updated_at) VALUES (1,'Minha conta',${Date.now()},${Date.now()}) ON CONFLICT DO NOTHING;\nINSERT INTO users(id,name,email,password,version,account_id) VALUES (1,'Administrador',${sqlString(email)},${sqlString(hash)},${sqlString(token())},1) ON CONFLICT DO NOTHING;`;
+// Bootstrap only an empty database. The same guard covers the account and user.
+const now = Date.now();
+const sql = `INSERT INTO accounts(id,name,created_at,updated_at)
+SELECT 1,'Minha conta',${now},${now}
+WHERE NOT EXISTS (SELECT 1 FROM users)
+ON CONFLICT DO NOTHING;
+INSERT INTO users(id,name,email,password,version,account_id)
+SELECT 1,'Administrador',${sqlString(email)},${sqlString(hash)},${sqlString(token())},1
+WHERE NOT EXISTS (SELECT 1 FROM users)
+ON CONFLICT DO NOTHING;`;
 const folder = await mkdtemp(join(tmpdir(), 'mrpag-seed-'));
 try {
   const path = join(folder, 'seed.sql');

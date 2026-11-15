@@ -16,13 +16,12 @@ git switch --track origin/feat/cloudflare-worker
 npm ci
 Copy-Item .dev.vars.example .dev.vars
 npm run db:migrate:local
-npm run db:seed:local
 npm start
 ```
 
 Se a branch já existir localmente, use `git switch feat/cloudflare-worker`. Após o merge, pode usar `git switch main` e `git pull origin main`.
 
-Abra http://localhost:8787. Use `admin@mrpag.local` / `MrPag@2026!Inicial` e troque a senha inicial. Teste logout, login, alterar senha e esqueci a senha. O link de recuperação aparece no terminal com `MAIL_MODE=log`. Não é necessário login Cloudflare nesta etapa.
+Antes da primeira migration, ajuste `SEED_EMAIL` e `SEED_PASSWORD` no `.dev.vars` se quiser credenciais próprias. `npm run db:migrate:local` também cria o primeiro administrador quando o banco estiver vazio. Abra http://localhost:8787, entre com as credenciais configuradas e troque a senha inicial. Os valores do exemplo são `admin@mrpag.local` e `MrPag@2026!Inicial`. Teste logout, login, alterar senha e esqueci a senha. O link de recuperação aparece no terminal com `MAIL_MODE=log`. Não é necessário login Cloudflare nesta etapa.
 
 O seed é idempotente: executá-lo de novo não redefine a senha. As tabelas locais e remotas são separadas; os usuários criados localmente não aparecem no remoto. O `.env` da versão Express não é lido pelo novo projeto. Preserve `data/` caso queira consultar o banco anterior.
 
