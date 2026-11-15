@@ -24,7 +24,8 @@
     "MAIL_MODE": "smtp",
     "SMTP_HOST": "br578.hostgator.com.br",
     "SMTP_USER": "noreply@mxsoft.com.br",
-    "MAIL_FROM": "MX Soft - Cobrança <noreply@mxsoft.com.br>"
+    "MAIL_FROM": "MX Soft - Cobrança <noreply@mxsoft.com.br>",
+    "MERCADO_PAGO_PAYER_EMAIL_DOMAIN": "mxsoft.com.br"
   },
   "triggers": {
     "crons": [
