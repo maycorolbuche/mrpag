@@ -2,6 +2,7 @@ import { render } from './generated/templates.js';
 import { token, digest, hashPassword, verifyPassword, passwordError, limited } from './security.js';
 import { sendRecovery } from './mail.js';
 import { customerRoutes } from './customers.js';
+import { paymentRoutes, paymentWebhook } from './payments.js';
 
 const generic = 'Se o e-mail estiver cadastrado, você receberá um link para redefinir sua senha.';
 const dummy = `pbkdf2-sha256:100000:${'0'.repeat(64)}:${'0'.repeat(64)}`;
@@ -42,6 +43,7 @@ async function handle(request, env) {
   const url = new URL(request.url), path = url.pathname;
   if (path.startsWith('/assets/')) return env.ASSETS.fetch(request);
   const config = configuration(env, request), db = env.DB;
+  if (path.startsWith('/webhooks/mercado-pago/')) return paymentWebhook(request, env, url);
   const cookies = [];
   const responseHeaders = () => {
     const headers = new Headers(securityHeaders);
@@ -86,7 +88,8 @@ async function handle(request, env) {
     const origin = request.headers.get('origin');
     if ((origin && origin !== config.origin) || !session || body._csrf !== session.csrf) return auth('error', { error: 'Sua sessão expirou. Recarregue a página e tente novamente.' }, 403);
   }
-  const protectedRoute = ['/app', '/account', '/account/password', '/logout'].includes(path) || path === '/customers' || path.startsWith('/customers/');
+  const isPaymentRoute = path === '/account/payments' || path === '/charges' || path.startsWith('/charges/');
+  const protectedRoute = isPaymentRoute || ['/app', '/account', '/account/password', '/logout'].includes(path) || path === '/customers' || path.startsWith('/customers/');
   if (protectedRoute && !user) return redirect('/login');
   if (protectedRoute && user.must_change && !['/account/password','/logout'].includes(path)) return redirect('/account/password');
   if (path === '/' && request.method === 'GET') return redirect(user ? '/app' : '/login');
@@ -149,6 +152,10 @@ async function handle(request, env) {
     if (name.length < 2 || name.length > 120) return show('account', { error: 'Informe um nome para a conta com 2 a 120 caracteres.', account: { ...account, name } }, 422);
     await db.prepare('UPDATE accounts SET name=?,updated_at=? WHERE id=?').bind(name,Date.now(),user.account_id).run();
     return redirect('/account?saved=1');
+  }
+  if (isPaymentRoute) {
+    const result = await paymentRoutes({ request, url, db, env, accountId: user.account_id, origin: config.origin, body, show, redirect });
+    if (result) return result;
   }
   if (path === '/customers' || path.startsWith('/customers/')) {
     const result = await customerRoutes({ request, url, db, user, account, body, show, redirect });

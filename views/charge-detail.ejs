@@ -1,0 +1,39 @@
+<%- include('header', {title:'Detalhes da cobrança'}) %>
+<a class="back-link" href="/charges">← Cobranças</a>
+<h1 class="workspace-title text-break"><%= charge.description %></h1>
+<% if (error) { %><div class="alert alert-danger" role="alert"><%= error %></div><% } %>
+<div class="settings-grid">
+  <section class="settings-card">
+    <dl class="customer-data">
+      <div><dt>Cliente</dt><dd><%= charge.customer_name %></dd></div>
+      <div><dt>Valor</dt><dd><%= charge.amount %></dd></div>
+      <div><dt>Vencimento</dt><dd><%= charge.date %></dd></div>
+      <div><dt>Situação</dt><dd><strong><%= charge.label %></strong></dd></div>
+      <% if (charge.paid_at) { %>
+        <div><dt>Pago em</dt><dd><%= new Date(charge.paid_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) %></dd></div>
+      <% } %>
+      <% if (charge.provider_id) { %>
+        <div><dt>Pagamento no Mercado Pago</dt><dd><%= charge.provider_id %></dd></div>
+      <% } %>
+    </dl>
+    <% if (charge.provider_id || charge.canRetry) { %>
+      <form method="post" action="/charges/<%= charge.id %>/<%= charge.provider_id ? 'refresh' : 'retry' %>">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <button class="btn btn-light" type="submit"><%= charge.provider_id ? 'Consultar situação' : 'Tentar emitir novamente' %></button>
+      </form>
+    <% } else { %>
+      <p>Confira no painel do Mercado Pago se a emissão foi concluída antes de criar outra cobrança.</p>
+    <% } %>
+  </section>
+  <% if (charge.status === 'pending' && (charge.pix_image || charge.pix_code)) { %>
+    <section class="settings-card">
+      <h2>Pix</h2>
+      <% if (charge.pix_image) { %><img class="img-fluid mb-3" width="200" height="200" alt="QR Code Pix" src="data:image/png;base64,<%= charge.pix_image %>"><% } %>
+      <% if (charge.pix_code) { %>
+        <label for="pix-code" class="form-label">Pix copia e cola</label>
+        <textarea id="pix-code" class="form-control" rows="4" readonly><%= charge.pix_code %></textarea>
+      <% } %>
+    </section>
+  <% } %>
+</div>
+</main></body></html>

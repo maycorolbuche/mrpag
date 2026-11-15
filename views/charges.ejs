@@ -1,0 +1,29 @@
+<%- include('header', {title:'Cobranças'}) %>
+<div class="page-heading">
+  <div><h1 class="workspace-title">Cobranças</h1></div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-light" href="/account/payments">Integrações</a>
+    <a class="btn btn-primary" href="/charges/new">Nova cobrança</a>
+  </div>
+</div>
+<section class="settings-card">
+  <% if (!charges.length) { %>
+    <p class="mb-0 text-secondary">Nenhuma cobrança nesta página.</p>
+  <% } else { %>
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead><tr><th scope="col">Descrição</th><th scope="col">Cliente</th><th scope="col">Valor</th><th scope="col">Vencimento</th><th scope="col">Situação</th></tr></thead>
+        <tbody>
+          <% for (const item of charges) { %>
+            <tr><td><a href="/charges/<%= item.id %>"><%= item.description %></a></td><td><%= item.customer_name %></td><td><%= item.amount %></td><td><%= item.date %></td><td><%= item.label %></td></tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+  <nav class="d-flex gap-3" aria-label="Paginação de cobranças">
+    <% if (chargePage > 1) { %><a href="/charges?page=<%= chargePage - 1 %>">Anterior</a><% } %>
+    <% if (nextPage) { %><a href="/charges?page=<%= chargePage + 1 %>">Próxima</a><% } %>
+  </nav>
+</section>
+</main></body></html>
