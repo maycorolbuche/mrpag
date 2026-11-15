@@ -9,12 +9,13 @@ const integrationId = crypto.randomUUID();
 const chargeId = crypto.randomUUID();
 const orderId = 'ORD01HRYFWNYRE1MR1E60MW3X0T2P';
 
-async function setup(t) {
+async function setup(t, { origin, mailApi } = {}) {
   const calls = [];
   let payment;
   let failureStatus;
   const f = await fixture({
-    bindings: { PAYMENT_INTEGRATION_KEY: 'a'.repeat(64) },
+    bindings: { PAYMENT_INTEGRATION_KEY: 'a'.repeat(64), ...(origin ? { APP_URL: origin } : {}) },
+    mailApi,
     async paymentApi(request) {
       const path = new URL(request.url).pathname;
       calls.push({ path, key: request.headers.get('x-idempotency-key'), token: request.headers.get('authorization') });
@@ -87,7 +88,7 @@ function webhook(f, signingSecret = secret, id = orderId, body) {
   const ts = String(Math.floor(Date.now() / 1000));
   const requestId = 'request-notification-test';
   const signature = createHmac('sha256', signingSecret).update(`id:${id.toLowerCase()};request-id:${requestId};ts:${ts};`).digest('hex');
-  return f.mf.dispatchFetch(`http://localhost:8787/webhooks/mercado-pago/${integrationId}?data.id=${id}&type=${id === '321' ? 'payment' : 'order'}`, {
+  return f.mf.dispatchFetch(`${f.agent.origin}/webhooks/mercado-pago/${integrationId}?data.id=${id}&type=${id === '321' ? 'payment' : 'order'}`, {
     method: 'POST', body, headers: { 'x-request-id': requestId, 'x-signature': `ts=${ts},v1=${signature}` },
   });
 }
@@ -191,4 +192,81 @@ test('webhook Order recupera emissão sem ID salvo usando a referência, sem con
   assert.equal((await webhook(f, secret, orderId, notification)).status, 200);
   assert.deepEqual(await getCharge(), { status: 'pending', provider_id: orderId });
   assert.equal(f.calls.at(-1).path, '/v1/orders/' + orderId);
+});
+
+test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo mesmo link', async t => {
+  const origin = 'https://pag.example.com';
+  const keys = [];
+  const f = await setup(t, {
+    origin,
+    mailApi(request) {
+      keys.push(request.headers.get('Idempotency-Key'));
+      return Response.json({ id: 'email-test' });
+    },
+  });
+  await configure(f);
+  await Promise.all([createCharge(f), createCharge(f)]);
+  const worker = await f.mf.getWorker();
+  const run = () => worker.scheduled({ cron: '*/5 * * * *' });
+  await Promise.all([run(), run()]);
+  assert.equal(f.messages.length, 1);
+  assert.equal(keys[0], 'initial/' + chargeId);
+  assert.deepEqual(f.messages[0].to, ['pix@example.com']);
+  const url = new URL(f.messages[0].text.match(/https:\/\/[^\s]+/)[0]);
+  assert.equal(url.origin, origin);
+  assert.match(url.pathname, /^\/pay\/[a-f0-9]{64}$/);
+  const publicAgent = agent(f.mf, origin);
+  const page = await publicAgent.request(url.pathname);
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get('cache-control'), 'no-store');
+  assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
+  assert.match(page.headers.get('x-robots-tag'), /noindex/);
+  assert.match(page.text, /codigo-pix-de-teste/);
+  assert.doesNotMatch(page.text, /pix@example.com|52998224725|Cliente Pix/);
+  assert.equal((await publicAgent.request('/pay/' + 'f'.repeat(64))).status, 404);
+  assert.equal((await publicAgent.request(url.pathname, { method: 'POST' })).status, 405);
+
+  const path = `/charges/${chargeId}`;
+  const detail = await f.agent.request(path);
+  assert.match(detail.text, /Aceito pelo serviço de e-mail/);
+  const mail_request_id = detail.text.match(/name="mail_request_id" value="([^"]+)"/)[1];
+  await post(f.agent, path, path + '/email', { mail_request_id });
+  await run();
+  await post(f.agent, path, path + '/email', { mail_request_id });
+  await run();
+  assert.equal(f.messages.length, 2);
+  assert.match(keys[1], /^manual\//);
+  assert.ok(f.messages[1].text.includes(url.href));
+
+  f.approveOrder(new Date(Date.now() + 1000).toISOString());
+  assert.equal((await webhook(f)).status, 200);
+  const paid = await publicAgent.request(url.pathname);
+  assert.match(paid.text, /<strong>Paga<\/strong>/);
+  assert.doesNotMatch(paid.text, /codigo-pix-de-teste/);
+  await post(f.agent, path, path + '/email', { mail_request_id: crypto.randomUUID() });
+  await run();
+  assert.equal(f.messages.length, 2);
+});
+
+test('uma falha temporária do serviço de e-mail é registrada e usa a mesma chave na nova tentativa', async t => {
+  const keys = [];
+  const f = await setup(t, {
+    origin: 'https://pag.example.com',
+    mailApi(request) {
+      keys.push(request.headers.get('Idempotency-Key'));
+      return Response.json({}, { status: keys.length === 1 ? 503 : 200 });
+    },
+  });
+  await configure(f);
+  await createCharge(f);
+  const worker = await f.mf.getWorker();
+  await worker.scheduled({ cron: '*/5 * * * *' });
+  const first = await f.db.prepare('SELECT status,next_at FROM charge_emails').first();
+  assert.equal(first.status, 'queued');
+  assert.ok(first.next_at > Date.now());
+  await f.db.prepare('UPDATE charge_emails SET next_at=0').run();
+  await worker.scheduled({ cron: '*/5 * * * *' });
+  assert.deepEqual(keys, ['initial/' + chargeId, 'initial/' + chargeId]);
+  assert.deepEqual((await f.db.prepare('SELECT result FROM charge_email_attempts ORDER BY number').all())
+    .results.map(row => row.result), ['mail_http_503', 'sent']);
 });

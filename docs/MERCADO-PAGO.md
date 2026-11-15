@@ -61,3 +61,11 @@ A integração por Access Token continua disponível em **Configuração manual*
 
 
 [Guia oficial de migração de Payments para Orders](https://www.mercadopago.com.br/developers/pt/docs/checkout-api-orders/resources/migrate-payments-to-orders)
+
+## Link de pagamento e envio por e-mail
+
+Novas cobranças com Pix disponível entram na fila de e-mail automaticamente. O Worker processa a fila a cada cinco minutos usando `MAIL_MODE=resend`, `RESEND_API_KEY` e `MAIL_FROM`. Use um remetente autorizado no Resend. O modo local `log` continua disponível para redefinição de senha. O envio de cobranças roda apenas com o Resend configurado.
+
+Na tela da cobrança, copie o **Link de pagamento** ou use **Enviar por e-mail**. O link pode ser aberto sem login e mostra a situação da cobrança. Após a baixa, o cliente pode atualizar a página para ver **Paga**. Cobranças antigas já emitidas ficam disponíveis para compartilhamento e envio manual. A atualização do Worker não dispara e-mails retroativos.
+
+O histórico mostra o destinatário, cada tentativa e a resposta do serviço. **Aceito pelo serviço de e-mail** indica aceitação pelo Resend. Falhas temporárias são repetidas automaticamente. Se houver uma falha definitiva, corrija a causa e use **Enviar novamente por e-mail**.

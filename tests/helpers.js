@@ -6,7 +6,7 @@ import { hashPassword, token } from '../src/security.js';
 const pepper = 'test-pepper-with-at-least-32-characters';
 export const initial = 'MrPag@2026!Inicial';
 export const personal = 'Minha senha pessoal 2026!';
-export async function fixture({ serve = false, bindings = {}, failMail = false, beforeAccounts, paymentApi } = {}) {
+export async function fixture({ serve = false, bindings = {}, failMail = false, beforeAccounts, paymentApi, mailApi } = {}) {
   const messages = [];
   const options = {
     modules: true, modulesRules: [{ type: 'ESModule', include: ['**/*.js'] }], scriptPath: 'src/worker.js', compatibilityDate: '2026-08-01',
@@ -21,7 +21,8 @@ export async function fixture({ serve = false, bindings = {}, failMail = false, 
     outboundService: async request => {
       if (paymentApi && new URL(request.url).hostname === 'api.mercadopago.com') return paymentApi(request);
       if (request.url !== 'https://api.resend.com/emails') throw new Error('Unexpected external request');
-      messages.push(await request.json());
+      messages.push(await request.clone().json());
+      if (mailApi) return mailApi(request);
       if (failMail) return new Response('unavailable', { status: 503 });
       return new Response('{"id":"test"}', { status: 200, headers: { 'Content-Type': 'application/json' } });
     },

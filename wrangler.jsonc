@@ -16,6 +16,6 @@
     "APP_URL": "https://mrpag.SEU-SUBDOMINIO.workers.dev",
     "MAIL_MODE": "disabled"
   },
-  "triggers": { "crons": ["0 4 * * *"] },
+  "triggers": { "crons": ["0 4 * * *", "*/5 * * * *"] },
   "observability": { "enabled": true }
 }

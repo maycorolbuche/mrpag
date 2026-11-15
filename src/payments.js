@@ -3,6 +3,8 @@ import {
   finishMercadoPagoOAuth, oauthCallback, oauthConnect, oauthReady, oauthWebhook, startMercadoPagoOAuth,
 } from './mercado-pago-oauth.js';
 
+import { token } from './security.js';
+import { businessDate, chargeMoney, displayDueDate, paymentLink, chargeEmailHistory, queueManualChargeEmail } from './charge-emails.js';
 import { orderIdPattern, pixOrderPayload, readPixOrder } from './mercado-pago-orders.js';
 
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -17,15 +19,13 @@ const labels = {
   expired: 'Vencida', paid: 'Paga', cancelled: 'Cancelada', rejected: 'Recusada',
   refunded: 'Estornada', charged_back: 'Contestada', in_mediation: 'Em análise',
 };
-const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-const businessDate = date => new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo' }).format(date);
 const route = '/charges';
 
 function present(charge) {
   const status = charge.status === 'pending' && charge.due_date < businessDate(new Date()) ? 'expired' : charge.status;
   return {
-    ...charge, status, label: labels[status], amount: money.format(charge.amount_cents / 100),
-    date: charge.due_date.split('-').reverse().join('/'),
+    ...charge, status, label: labels[status], amount: chargeMoney.format(charge.amount_cents / 100),
+    date: displayDueDate(charge.due_date),
     canRetry: !charge.provider_id && Date.now() - charge.created_at <= maximumRetryAge,
   };
 }
@@ -202,6 +202,14 @@ async function issue({ db, env }, charge) {
   }
 }
 
+export async function publicPayment(db, publicToken) {
+  if (!/^[a-f0-9]{64}$/.test(publicToken)) return null;
+  const charge = await db.prepare(`SELECT c.amount_cents,c.due_date,c.status,c.pix_code,c.pix_image,a.name AS issuer
+    FROM charges c JOIN accounts a ON a.id=c.account_id
+    WHERE c.public_token=? AND c.provider_id IS NOT NULL`).bind(publicToken).first();
+  return charge ? present(charge) : null;
+}
+
 export async function paymentRoutes(context) {
   const { request, url, db, env, accountId, origin, body, show, redirect } = context;
   if (url.pathname === oauthConnect && request.method === 'POST') return startMercadoPagoOAuth(context);
@@ -242,29 +250,43 @@ export async function paymentRoutes(context) {
       payer: { email: customer.email, identification: { type: customer.document.length === 11 ? 'CPF' : 'CNPJ', number: customer.document } },
     });
     const created = await db.prepare(`INSERT INTO charges(id,account_id,customer_id,integration_id,
-      description,amount_cents,due_date,provider_payload,created_at,provider_api) VALUES (?,?,?,?,?,?,?,?,?,'orders')
+      description,amount_cents,due_date,provider_payload,created_at,provider_api,public_token,auto_email)
+      VALUES (?,?,?,?,?,?,?,?,?,'orders',?,1)
       ON CONFLICT(id) DO NOTHING RETURNING *`)
-      .bind(fields.request_id, accountId, customer.id, integration.id, description, cents, fields.due_date, JSON.stringify(payload), now).first();
+      .bind(fields.request_id, accountId, customer.id, integration.id, description, cents, fields.due_date, JSON.stringify(payload), now, token()).first();
     if (!created) return redirect(`${route}/${fields.request_id}`);
     await issue(context, created);
     return redirect(`${route}/${created.id}`);
   }
-  const [, id, action] = url.pathname.match(/^\/charges\/([a-f0-9-]+)(?:\/(retry|refresh))?$/) || [];
+  const [, id, action] = url.pathname.match(/^\/charges\/([a-f0-9-]+)(?:\/(retry|refresh|email))?$/) || [];
   if (!uuid.test(id || '')) return null;
-  const charge = await db.prepare(`SELECT c.*,u.name AS customer_name FROM charges c
+  const charge = await db.prepare(`SELECT c.*,u.name AS customer_name,u.email AS customer_email FROM charges c
     JOIN customers u ON u.id=c.customer_id AND u.account_id=c.account_id WHERE c.id=? AND c.account_id=?`).bind(id, accountId).first();
   if (!charge) return null;
-  if (!action && request.method === 'GET') return show('charge-detail', {
-    charge: present(charge), error: charge.status === 'creation_error' ? paymentFailureMessage(charge.creation_failure) : null,
-  });
+  const detail = async (error, status = 200) => {
+    const display = present(charge);
+    const emailHistory = await chargeEmailHistory(db, id);
+    return show('charge-detail', {
+      charge: display, error, emailHistory, mailRequestId: crypto.randomUUID(),
+      publicUrl: charge.provider_id && charge.public_token ? paymentLink(origin, charge.public_token) : null,
+      canSendEmail: display.status === 'pending' && !!(charge.pix_code || charge.pix_image) &&
+        !!charge.customer_email && !emailHistory.some(entry => ['queued', 'sending'].includes(entry.status)),
+    }, status);
+  };
+  if (!action && request.method === 'GET') {
+    return detail(charge.status === 'creation_error' ? paymentFailureMessage(charge.creation_failure) : null);
+  }
   if (request.method !== 'POST' || !action) return null;
   if (action === 'retry') await issue(context, charge);
+  if (action === 'email' && uuid.test(body.mail_request_id || '')) {
+    await queueManualChargeEmail(db, charge, body.mail_request_id);
+  }
   if (action === 'refresh' && charge.provider_id) {
     try {
       const provider = await chargeProvider(env, db, charge);
       await saveProviderState(db, charge, provider, await provider.get(charge.provider_id), charge.provider_id);
     } catch (error) {
-      return show('charge-detail', { charge: present(charge), error: paymentFailureMessage(paymentFailure(error)) }, 502);
+      return detail(paymentFailureMessage(paymentFailure(error)), 502);
     }
   }
   return redirect(`${route}/${id}`);
