@@ -11,7 +11,7 @@ const chargeId = crypto.randomUUID();
 async function setup(t) {
   const calls = [];
   let payment;
-  let failFirst = false;
+  let failureStatus;
   const f = await fixture({
     bindings: { PAYMENT_INTEGRATION_KEY: 'a'.repeat(64) },
     async paymentApi(request) {
@@ -25,9 +25,10 @@ async function setup(t) {
           date_last_updated: new Date().toISOString(),
           point_of_interaction: { transaction_data: { qr_code: 'codigo-pix-de-teste', qr_code_base64: 'aW1hZ2U=' } },
         };
-        if (failFirst) {
-          failFirst = false;
-          return new Response(null, { status: 503 });
+        if (failureStatus) {
+          const status = failureStatus;
+          failureStatus = null;
+          return Response.json({ message: 'detalhe-privado-do-provedor' }, { status });
         }
       }
       return Response.json(payment);
@@ -40,7 +41,7 @@ async function setup(t) {
     VALUES (1,'Cliente Pix','person','52998224725','pix@example.com',0,0)`).run();
   return {
     ...f, calls,
-    failFirst() { failFirst = true; },
+    failFirst(status) { failureStatus = status; },
     updatePayment(values) { Object.assign(payment, values); },
   };
 }
@@ -101,11 +102,16 @@ test('a cobrança emite Pix uma vez e só é baixada após consulta autenticada 
 test('falha de emissão pode ser repetida com a mesma chave e credencial original', async t => {
   const f = await setup(t);
   await configure(f);
-  f.failFirst();
+  f.failFirst(401);
   await createCharge(f);
   assert.equal((await f.db.prepare('SELECT status FROM charges').first()).status, 'creation_error');
   const path = `/charges/${chargeId}`;
+  const failed = await f.agent.request(path);
+  assert.match(failed.text, /Mercado Pago \(HTTP 401\)/);
+  assert.match(failed.text, /Access Token/);
+  assert.doesNotMatch(failed.text, /detalhe-privado-do-provedor/);
   assert.equal((await post(f.agent, path, `${path}/retry`, {})).status, 303);
+  assert.doesNotMatch((await f.agent.request(path)).text, /HTTP 401/);
   assert.equal((await f.db.prepare('SELECT status FROM charges').first()).status, 'pending');
   assert.deepEqual(f.calls.filter(call => call.key).map(call => call.key), [chargeId, chargeId]);
   const updatedAt = new Date(Date.now() + 1000).toISOString();
