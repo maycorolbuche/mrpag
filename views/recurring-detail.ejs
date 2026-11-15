@@ -1,0 +1,80 @@
+<%- include('header', {title:recurringSeries ? 'Detalhe da recorrência' : 'Nova recorrência'}) %>
+<a class="back-link" href="/charges/recurring">← Recorrências</a>
+<h1 class="workspace-title"><%= recurringSeries ? recurringSeries.description : 'Nova recorrência' %></h1>
+<% if (error) { %><div class="alert alert-danger" role="alert"><%= error %></div><% } %>
+<% if (recurringWarning) { %><p class="alert alert-warning"><%= recurringWarning %></p><% } %>
+<div class="settings-grid">
+  <section class="settings-card">
+    <% if (recurringSeries) { %>
+      <dl class="customer-data">
+        <div><dt>Cliente</dt><dd><%= recurringSeries.customer_name %></dd></div>
+        <div><dt>Situação</dt><dd><%= recurringSeries.state %></dd></div>
+        <div><dt>Frequência</dt><dd><%= recurringSeries.frequency %></dd></div>
+        <% if (recurringSeries.status !== 'ended') { %>
+          <div><dt>Próximo vencimento</dt><dd><%= recurringSeries.due %></dd></div>
+        <% } %>
+      </dl>
+    <% } %>
+    <% if (!recurringSeries || recurringSeries.status !== 'ended') { %>
+      <form method="post" action="/charges/recurring<%= recurringSeries ? '/' + recurringSeries.id : '' %>">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <% if (!recurringSeries) { %>
+          <input type="hidden" name="request_id" value="<%= recurringFields.request_id %>">
+          <label for="rec-customer" class="form-label">Cliente</label>
+          <select id="rec-customer" name="customer_id" class="form-select mb-3" required>
+            <option value="">Selecione</option>
+            <% for (const customer of customers) { %>
+              <option value="<%= customer.id %>" <%= String(recurringFields.customer_id) === String(customer.id) ? 'selected' : '' %>><%= customer.name %></option>
+            <% } %>
+          </select>
+          <label for="rec-frequency" class="form-label">Frequência</label>
+          <select id="rec-frequency" name="interval_months" class="form-select mb-3" required>
+            <% for (const [value, label] of Object.entries(frequencies)) { %>
+              <option value="<%= value %>" <%= String(recurringFields.interval_months) === value ? 'selected' : '' %>><%= label %></option>
+            <% } %>
+          </select>
+          <label for="rec-due" class="form-label">Primeiro vencimento</label>
+          <input id="rec-due" type="date" name="first_due" class="form-control mb-3" min="<%= today %>" value="<%= recurringFields.first_due || '' %>" required>
+        <% } %>
+        <label for="rec-description" class="form-label">Descrição</label>
+        <input id="rec-description" name="description" class="form-control mb-3" value="<%= recurringFields.description || '' %>" maxlength="150" required>
+        <label for="rec-amount" class="form-label">Valor (R$)</label>
+        <input id="rec-amount" name="amount" inputmode="decimal" class="form-control mb-3" value="<%= recurringFields.amount || '' %>" required>
+        <label for="rec-lead" class="form-label">Dias de antecedência para emitir</label>
+        <input id="rec-lead" type="number" name="lead_days" class="form-control mb-3" min="0" max="28" value="<%= recurringFields.lead_days %>" required>
+        <button class="btn btn-primary" type="submit"><%= recurringSeries ? 'Salvar alterações' : 'Criar recorrência' %></button>
+      </form>
+    <% } %>
+  </section>
+  <% if (recurringSeries && recurringSeries.status !== 'ended') { %>
+    <aside class="settings-card">
+      <h2>Gerenciar recorrência</h2>
+      <% const paused = recurringSeries.status === 'paused'; %>
+      <form method="post" action="/charges/recurring/<%= recurringSeries.id %>/<%= paused ? 'resume' : 'pause' %>">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <button class="btn btn-light" type="submit"><%= paused ? 'Retomar' : 'Pausar' %></button>
+      </form>
+      <details class="mt-3">
+        <summary>Encerrar recorrência</summary>
+        <form method="post" action="/charges/recurring/<%= recurringSeries.id %>/end" class="mt-2">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <p>Após encerrar, esta série deixa de gerar novas cobranças.</p>
+          <button class="btn btn-outline-danger" type="submit">Confirmar encerramento</button>
+        </form>
+      </details>
+    </aside>
+  <% } %>
+</div>
+<% if (recurringSeries) { %>
+  <section class="settings-card mt-3">
+    <h2>Cobranças emitidas</h2>
+    <% if (!cycles.length) { %><p>Nenhuma cobrança gerada.</p><% } else { %>
+      <ul class="list-group list-group-flush">
+        <% for (const cycle of cycles) { %>
+          <li class="list-group-item px-0"><a href="/charges/<%= cycle.id %>"><%= fmtDue(cycle.due_date) %></a> · <%= fmtMoney(cycle.amount_cents) %> · <%= cycle.label %></li>
+        <% } %>
+      </ul>
+    <% } %>
+  </section>
+<% } %>
+</main></body></html>

@@ -71,3 +71,11 @@ Na tela da cobrança, copie o **Link de pagamento** ou use **Enviar por e-mail**
 O histórico mostra o destinatário, cada tentativa e a resposta do serviço. **Aceito pelo serviço de e-mail** indica que o provedor recebeu a mensagem para envio. Falhas temporárias são repetidas automaticamente. Se houver uma falha definitiva, corrija a causa e use **Enviar novamente por e-mail**.
 
 Cada e-mail de cobrança inclui uma cópia oculta para o usuário que emitiu o Pix ou solicitou o reenvio. O MR Pag registra esse endereço ao agendar o e-mail, para que o envio automático e as novas tentativas usem o mesmo destinatário.
+
+## Cobranças recorrentes
+
+Em **Cobranças → Recorrências → Nova recorrência**, escolha o cliente, o valor, a descrição, o primeiro vencimento, a frequência e a antecedência de emissão. As frequências disponíveis são mensal, bimestral, semestral e anual. O primeiro vencimento define o dia de referência. Nos meses que não têm esse dia, o vencimento cai no último dia do mês.
+
+O cron de cinco minutos gera um Pix por ciclo. Quando o Pix fica disponível, ele segue pela fila de e-mails já configurada. O pagador precisa pagar cada Pix. Se uma série estiver pausada, os ciclos que vencerem durante a pausa não são emitidos ao retomar.
+
+O detalhe da série permite editar valor, descrição e antecedência para os próximos ciclos, pausar, retomar, encerrar e acompanhar as cobranças geradas. Para mudar cliente, frequência ou dia de referência, encerre a série e crie outra. As cobranças já geradas mantêm seu próprio vencimento e podem ser gerenciadas individualmente.
