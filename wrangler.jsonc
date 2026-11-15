@@ -22,7 +22,7 @@
   "vars": {
     "APP_URL": "https://mrpag.mxsoft.com.br",
     "MAIL_MODE": "smtp",
-    "SMTP_HOST": "mail.mxsoft.com.br",
+    "SMTP_HOST": "br578.hostgator.com.br",
     "SMTP_USER": "noreply@mxsoft.com.br",
     "MAIL_FROM": "MX Soft - Cobrança <noreply@mxsoft.com.br>"
   },
