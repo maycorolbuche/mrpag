@@ -13,6 +13,7 @@ async function setup(t, { origin, mailApi, bindings = {} } = {}) {
   const calls = [];
   let payment;
   let failureStatus;
+  let cancellationFailure;
   const f = await fixture({
     bindings: { PAYMENT_INTEGRATION_KEY: 'a'.repeat(64), ...(origin ? { APP_URL: origin } : {}), ...bindings },
     mailApi,
@@ -20,6 +21,21 @@ async function setup(t, { origin, mailApi, bindings = {} } = {}) {
       const path = new URL(request.url).pathname;
       calls.push({ path, key: request.headers.get('x-idempotency-key'), token: request.headers.get('authorization') });
       if (path === '/users/me') return Response.json({ id: 123 });
+      if (path.endsWith('/cancel') || request.method === 'PUT') {
+        if (cancellationFailure) return Response.json({}, { status: cancellationFailure });
+        const now = new Date(Date.now() + 1000).toISOString();
+        if (request.method === 'PUT') {
+          assert.equal(path, '/v1/payments/321');
+          assert.deepEqual(await request.json(), { status: 'cancelled' });
+          Object.assign(payment, { status: 'cancelled', status_detail: 'by_collector', date_last_updated: now });
+        } else {
+          assert.equal(path, `/v1/orders/${orderId}/cancel`);
+          assert.equal(request.headers.get('x-idempotency-key'), 'cancel-' + chargeId);
+          Object.assign(payment, { status: 'canceled', status_detail: 'canceled_transaction', last_updated_date: now });
+          Object.assign(payment.transactions.payments[0], { status: 'canceled', status_detail: 'canceled_transaction' });
+        }
+        return Response.json(payment);
+      }
       if (request.method === 'POST') {
         const payload = await request.json();
         if (path === '/v1/payments') {
@@ -61,6 +77,7 @@ async function setup(t, { origin, mailApi, bindings = {} } = {}) {
   return {
     ...f, calls,
     failFirst(status) { failureStatus = status; },
+    failCancellation(status) { cancellationFailure = status; },
     updatePayment(values) { Object.assign(payment, values); },
     approveOrder(at) {
       Object.assign(payment, { status: 'processed', status_detail: 'accredited',
@@ -158,6 +175,8 @@ test('cobranças e clientes de outra conta ficam fora do escopo', async t => {
   assert.equal((await post(other, '/login', '/login', { email: 'other@example.com', password: initial })).status, 303);
   assert.equal((await other.request(`/charges/${chargeId}`)).status, 404);
   assert.equal((await post(other, '/charges', `/charges/${chargeId}/refresh`, {})).status, 404);
+  assert.equal((await post(other, '/charges', `/charges/${chargeId}/cancel`, {})).status, 404);
+  assert.ok(!f.calls.some(call => call.path.endsWith('/cancel')));
   assert.doesNotMatch((await other.request('/charges')).text, /Cobrança de teste/);
   assert.doesNotMatch((await other.request('/account/payments')).text, new RegExp(integrationId));
 });
@@ -292,4 +311,62 @@ test('cron SMTP registra configuração incompleta e não repete um envio interr
     { status: 'failed', attempt_count: 1 });
   assert.equal((await f.db.prepare('SELECT result FROM charge_email_attempts').first()).result, 'mail_smtp_delivery_unknown');
   assert.equal(f.messages.length, 0);
+});
+
+test('cancelamento confirmado no Mercado Pago atualiza a cobrança e remove o Pix do link público', async t => {
+  const f = await setup(t);
+  await configure(f);
+  await createCharge(f);
+  const path = `/charges/${chargeId}`;
+  assert.match((await f.agent.request(path)).text, /Confirmar cancelamento/);
+  assert.equal((await f.agent.request(path + '/cancel')).status, 404);
+  const result = await post(f.agent, path, path + '/cancel', {});
+  assert.equal(result.headers.get('location'), path);
+  const detail = await f.agent.request(path);
+  assert.match(detail.text, /<strong>Cancelada<\/strong>/);
+  assert.doesNotMatch(detail.text, /Confirmar cancelamento|codigo-pix-de-teste/);
+
+  const { public_token } = await f.db.prepare('SELECT public_token FROM charges').first();
+  const publicPage = await agent(f.mf).request('/pay/' + public_token);
+  assert.match(publicPage.text, /<strong>Cancelada<\/strong>/);
+  assert.doesNotMatch(publicPage.text, /codigo-pix-de-teste/);
+  await post(f.agent, path, path + '/cancel', {});
+  assert.equal(f.calls.filter(call => call.path.endsWith('/cancel')).length, 1);
+
+  f.updatePayment({ status: 'action_required', last_updated_date: new Date(Date.now() + 2000).toISOString() });
+  await post(f.agent, path, path + '/refresh', {});
+  assert.equal((await f.db.prepare('SELECT status FROM charges').first()).status, 'cancelled');
+});
+
+test('cancelamento recusado mantém o Pix pendente e concilia um pagamento que acabou de entrar', async t => {
+  const f = await setup(t);
+  await configure(f);
+  await createCharge(f);
+  const path = `/charges/${chargeId}`;
+  f.failCancellation(409);
+  const refusal = await post(f.agent, path, path + '/cancel', {});
+  assert.equal(refusal.status, 502);
+  assert.match(refusal.text, /O cancelamento não foi confirmado/);
+  assert.equal((await f.db.prepare('SELECT status FROM charges').first()).status, 'pending');
+
+  f.approveOrder(new Date(Date.now() + 1000).toISOString());
+  const reconciled = await post(f.agent, path, path + '/cancel', {});
+  assert.equal(reconciled.status, 303);
+  assert.equal((await f.db.prepare('SELECT status FROM charges').first()).status, 'paid');
+  await post(f.agent, path, path + '/cancel', {});
+  assert.equal(f.calls.filter(call => call.path.endsWith('/cancel')).length, 2);
+});
+
+test('cancelamento de cobrança legada usa a API Payments', async t => {
+  const f = await setup(t);
+  await configure(f);
+  const payload = JSON.stringify({ external_reference: chargeId, transaction_amount: 49.90, payment_method_id: 'pix' });
+  await f.db.prepare(`INSERT INTO charges(id,account_id,customer_id,integration_id,description,amount_cents,
+    due_date,provider_payload,created_at) VALUES (?,1,1,?,'Pix legado',4990,?,?,?)`)
+    .bind(chargeId, integrationId, new Date(Date.now() + 86400000).toISOString().slice(0, 10), payload, Date.now()).run();
+  const path = `/charges/${chargeId}`;
+  await post(f.agent, path, path + '/retry', {});
+  const result = await post(f.agent, path, path + '/cancel', {});
+  assert.equal(result.status, 303);
+  assert.equal((await f.db.prepare('SELECT status FROM charges').first()).status, 'cancelled');
 });
