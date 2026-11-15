@@ -41,13 +41,13 @@ export async function fixture({ serve = false, bindings = {}, failMail = false, 
   }
   await db.prepare("INSERT INTO accounts(id,name,created_at,updated_at) VALUES (1,'Minha conta',0,0) ON CONFLICT DO NOTHING").run();
   await db.prepare('INSERT INTO users(id,name,email,password,version,account_id) VALUES (1,?,?,?,?,1) ON CONFLICT DO NOTHING').bind('Administrador', 'admin@mrpag.local', await hashPassword(initial, pepper), token()).run();
-  return { mf, db, messages, agent: agent(mf) };
+  return { mf, db, messages, agent: agent(mf, bindings.APP_URL) };
   } catch(error) { await mf.dispose(); throw error; }
 }
-export function agent(mf) {
+export function agent(mf, origin = 'http://localhost:8787') {
   let cookie = '';
-  return { async request(path, init = {}) {
-    const response = await mf.dispatchFetch(`http://localhost:8787${path}`, { redirect: 'manual', ...init, headers: { Cookie: cookie, ...init.headers } });
+  return { origin, async request(path, init = {}) {
+    const response = await mf.dispatchFetch(`${origin}${path}`, { redirect: 'manual', ...init, headers: { Cookie: cookie, ...init.headers } });
     if (response.headers.get('set-cookie')) cookie = response.headers.get('set-cookie').split(';')[0];
     return { status: response.status, headers: response.headers, text: await response.text() };
   } };
@@ -55,6 +55,6 @@ export function agent(mf) {
 export const csrf = page => page.text.match(/name="_csrf" value="([a-f0-9]+)"/)[1];
 export async function post(agent, page, path, body) {
   const form = await agent.request(page);
-  return agent.request(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: 'http://localhost:8787' }, body: new URLSearchParams({ _csrf: csrf(form), ...body }).toString() });
+  return agent.request(path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: agent.origin }, body: new URLSearchParams({ _csrf: csrf(form), ...body }).toString() });
 }
 export const login = (a, password = initial) => post(a, '/login', '/login', { email: 'admin@mrpag.local', password });

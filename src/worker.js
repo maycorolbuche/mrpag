@@ -66,6 +66,9 @@ async function handle(request, env) {
   }
   const show = (name, values = {}, status = 200) => {
     const headers = responseHeaders(); headers.set('Content-Type', 'text/html; charset=utf-8');
+    if (name === 'payment-settings' && values.oauthReady) {
+      headers.set('Content-Security-Policy', securityHeaders['Content-Security-Policy'] + ' https://auth.mercadopago.com');
+    }
     return new Response(render(name, { csrf: session?.csrf || '', user, account, currentPath: path, saved: url.searchParams.get('saved') === '1', error: null, success: null, email: '', resetToken: '', ...values }), { status, headers });
   };
   const auth = (page, values = {}, status = 200) => show('auth', { page, ...values }, status);
@@ -88,7 +91,7 @@ async function handle(request, env) {
     const origin = request.headers.get('origin');
     if ((origin && origin !== config.origin) || !session || body._csrf !== session.csrf) return auth('error', { error: 'Sua sessão expirou. Recarregue a página e tente novamente.' }, 403);
   }
-  const isPaymentRoute = path === '/account/payments' || path === '/charges' || path.startsWith('/charges/');
+  const isPaymentRoute = path === '/account/payments' || path.startsWith('/account/payments/mercado-pago/') || path === '/charges' || path.startsWith('/charges/');
   const protectedRoute = isPaymentRoute || ['/app', '/account', '/account/password', '/logout'].includes(path) || path === '/customers' || path.startsWith('/customers/');
   if (protectedRoute && !user) return redirect('/login');
   if (protectedRoute && user.must_change && !['/account/password','/logout'].includes(path)) return redirect('/account/password');
@@ -154,7 +157,7 @@ async function handle(request, env) {
     return redirect('/account?saved=1');
   }
   if (isPaymentRoute) {
-    const result = await paymentRoutes({ request, url, db, env, accountId: user.account_id, origin: config.origin, body, show, redirect });
+    const result = await paymentRoutes({ request, url, db, env, accountId: user.account_id, origin: config.origin, sessionHash, body, show, redirect });
     if (result) return result;
   }
   if (path === '/customers' || path.startsWith('/customers/')) {

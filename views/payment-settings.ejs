@@ -6,25 +6,41 @@
     <h2>Mercado Pago</h2>
     <% if (integration) { %>
       <p class="security-pill">Integração ativa</p>
+      <% if (integration.oauth_collector_id) { %>
+        <p>Conta Mercado Pago <strong><%= integration.oauth_collector_id %></strong> · <%= integration.oauth_live_mode ? 'Produção' : 'Teste' %></p>
+      <% } %>
       <p>Webhook da integração ativa</p>
       <p class="text-break"><code><%= activeEndpoint %></code></p>
     <% } %>
     <% if (error) { %><div class="alert alert-danger" role="alert"><%= error %></div><% } %>
-    <p>Cadastre a URL abaixo no painel do Mercado Pago para eventos de pagamento. Depois, informe a assinatura secreta e o Access Token da mesma aplicação.</p>
-    <p class="text-break"><code><%= endpoint %></code></p>
-    <form method="post" action="/account/payments">
-      <input type="hidden" name="_csrf" value="<%= csrf %>">
-      <input type="hidden" name="integration_id" value="<%= formId %>">
-      <div class="mb-3">
-        <label for="access_token" class="form-label">Access Token</label>
-        <input class="form-control" id="access_token" name="access_token" type="password" autocomplete="off" maxlength="512" required>
-      </div>
-      <div class="mb-3">
-        <label for="webhook_secret" class="form-label">Assinatura secreta do webhook</label>
-        <input class="form-control" id="webhook_secret" name="webhook_secret" type="password" autocomplete="off" maxlength="512" required>
-      </div>
-      <button type="submit" class="btn btn-primary"><%= integration ? 'Salvar nova integração' : 'Conectar Mercado Pago' %></button>
-    </form>
+    <% if (success) { %><div class="alert alert-success" role="status"><%= success %></div><% } %>
+    <% if (oauthReady) { %>
+      <form class="mb-4" method="post" action="<%= oauthConnect %>">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <button type="submit" class="btn btn-primary">Conectar Mercado Pago</button>
+      </form>
+    <% } else { %>
+      <p>A conexão por autorização ainda precisa ser configurada pelo administrador.</p>
+    <% } %>
+    <details<% if (manualError) { %> open<% } %>>
+      <summary>Configuração manual</summary>
+      <% if (manualError) { %><div class="alert alert-danger mt-3" role="alert"><%= manualError %></div><% } %>
+      <p class="mt-3">Cadastre a URL abaixo no painel do Mercado Pago para eventos de pagamento. Depois, informe a assinatura secreta e o Access Token da mesma aplicação.</p>
+      <p class="text-break"><code><%= endpoint %></code></p>
+      <form method="post" action="/account/payments">
+        <input type="hidden" name="_csrf" value="<%= csrf %>">
+        <input type="hidden" name="integration_id" value="<%= formId %>">
+        <div class="mb-3">
+          <label for="access_token" class="form-label">Access Token</label>
+          <input class="form-control" id="access_token" name="access_token" type="password" autocomplete="off" maxlength="512" required>
+        </div>
+        <div class="mb-3">
+          <label for="webhook_secret" class="form-label">Assinatura secreta do webhook</label>
+          <input class="form-control" id="webhook_secret" name="webhook_secret" type="password" autocomplete="off" maxlength="512" required>
+        </div>
+        <button type="submit" class="btn btn-secondary">Salvar integração manual</button>
+      </form>
+    </details>
   </section>
   <% if (integration) { %>
     <aside class="security-aside">

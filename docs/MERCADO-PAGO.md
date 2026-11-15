@@ -1,45 +1,36 @@
 # Integrar o MR Pag com o Mercado Pago
 
-O MR Pag usa o Mercado Pago para emitir cobranças avulsas via Pix e acompanhar o pagamento. Configure três valores antes da primeira cobrança.
+O MR Pag usa o Mercado Pago para emitir cobranças Pix avulsas e acompanhar o pagamento. Depois da configuração inicial no Cloudflare e no Mercado Pago Developers, cada conta no MR Pag pode autorizar sua própria conta recebedora pelo botão **Conectar Mercado Pago**.
 
-| Valor | Onde obter | Onde cadastrar |
-| --- | --- | --- |
-| `PAYMENT_INTEGRATION_KEY` | Gerada por você no terminal | Secret do Worker `mrpag` no Cloudflare |
-| Access Token | Credenciais da aplicação no Mercado Pago | **Cobranças → Integrações** no MR Pag |
-| Assinatura secreta do webhook | Configuração de Webhooks da mesma aplicação no Mercado Pago | **Cobranças → Integrações** no MR Pag |
+## 1. Configure a aplicação no Mercado Pago Developers
 
-## 1. Prepare o Worker no Cloudflare
+1. Abra [Suas integrações](https://www.mercadopago.com.br/developers/panel/app) e selecione ou crie uma aplicação para o MR Pag. Escolha **Checkout Transparente → API de Pagamentos (Payments)** quando essas opções aparecerem. O MR Pag usa `/v1/payments`.
+2. Nos **Detalhes da aplicação**, clique em **Editar**. Adicione a URL de redirecionamento `https://mrpag.mxsoft.com.br/account/payments/mercado-pago/callback` e habilite **PKCE** para o fluxo de código de autorização. Se usar outro domínio, substitua a origem pelo valor de `APP_URL`. A URL de retorno precisa coincidir com a registrada no Mercado Pago.
+3. Copie o **Client ID** e o **Client Secret** da aplicação. Os dois valores identificam a aplicação na troca e na renovação de tokens.
+4. Na mesma aplicação, abra **Configuração de webhooks** e selecione **Produção**. Cadastre `https://mrpag.mxsoft.com.br/webhooks/mercado-pago/oauth`, marque **Pagamentos (legacy)** e salve. Copie a **assinatura secreta** exibida após salvar. Preserve as URLs das integrações manuais antigas enquanto houver pagamentos pendentes. Se uma delas já ocupar a URL de Produção desta aplicação, use uma aplicação dedicada ao OAuth para manter o webhook antigo cadastrado.
+5. Para um ambiente de homologação, cadastre o webhook e a URL de redirecionamento públicos desse ambiente e use a aba **Teste** para o webhook. Configure `MERCADO_PAGO_OAUTH_MODE=test` no Worker de homologação. A emissão de Pix depende dos meios habilitados pelo Mercado Pago naquele ambiente.
 
-1. Use a versão publicada do MR Pag e abra **Cobranças → Integrações**. Se estiver atualizando a instalação, aguarde o deploy da `main` aplicar as migrations. Em instalações com deploy manual, use `npm run deploy`.
-2. Confirme que a URL de produção é o endereço HTTPS público do MR Pag. No deploy pelo GitHub Actions, o endereço vem de `CLOUDFLARE_APP_URL`. [Configuração do Cloudflare](CLOUDFLARE.md)
-3. Se o Worker ainda não tiver `PAYMENT_INTEGRATION_KEY`, gere uma chave com 64 caracteres hexadecimais no PowerShell:
+[Documentação do OAuth e PKCE](https://www.mercadopago.com.br/developers/pt/docs/split-payments/split-1-1/additional-content/security/oauth/creation)
 
-   ```powershell
-   node -p "require('node:crypto').randomBytes(32).toString('hex')"
-   ```
+## 2. Configure o Worker no Cloudflare
 
-4. No Cloudflare, abra **Workers & Pages → mrpag → Settings → Variables and Secrets → Add**. Escolha **Secret**, informe o nome `PAYMENT_INTEGRATION_KEY`, cole a chave gerada e confirme a publicação da configuração. Pelo terminal, na pasta do projeto, você também pode usar:
+Em **Workers & Pages → mrpag → Settings → Variables and Secrets**, adicione os valores abaixo como **Secret**. O deploy da `main` aplica a migration automaticamente. Confira também se `CLOUDFLARE_APP_URL` corresponde ao domínio HTTPS cadastrado na etapa anterior.
 
-   ```powershell
-   npx wrangler secret put PAYMENT_INTEGRATION_KEY
-   ```
+| Secret | Valor |
+| --- | --- |
+| `MERCADO_PAGO_CLIENT_ID` | Client ID da aplicação |
+| `MERCADO_PAGO_CLIENT_SECRET` | Client Secret da aplicação |
+| `MERCADO_PAGO_WEBHOOK_SECRET` | Assinatura secreta do webhook OAuth |
+| `PAYMENT_INTEGRATION_KEY` | Chave de criptografia existente do Worker |
 
-   Cole a chave quando solicitado. Guarde uma cópia segura e preserve o valor nos próximos deploys. O MR Pag precisa dele para ler as credenciais de pagamento já salvas. Em desenvolvimento local, use uma chave própria no `.dev.vars`.
+Se for uma instalação nova sem `PAYMENT_INTEGRATION_KEY`, gere uma chave hexadecimal de 64 caracteres com `node -p "require('node:crypto').randomBytes(32).toString('hex')"`. Preserve a chave e as credenciais da aplicação nos próximos deploys para que o MR Pag consiga ler e renovar as conexões salvas. Em homologação, use uma instalação e um D1 separados da produção.
 
-## 2. Crie a aplicação no Mercado Pago
+## 3. Autorize a conta que receberá os Pix
 
-1. Entre no [Mercado Pago Developers](https://www.mercadopago.com.br/developers/panel/app) com a conta que receberá os pagamentos.
-2. Abra **Suas integrações → Criar aplicação**. Dê o nome **MR Pag**.
-3. Se o painel pedir o produto, escolha **Checkout Transparente**. Se houver opção entre **Payments** e **Orders**, escolha **API de Pagamentos (Payments)**. O MR Pag usa o endpoint `/v1/payments`.
-4. Abra a aplicação e acesse **Credenciais → Teste**. Copie o **Access Token**. O formulário do MR Pag usa o Access Token. [Pix na API de Pagamentos](https://www.mercadopago.com.br/developers/pt/docs/checkout-api-payments/integration-configuration/integrate-pix)
-
-## 3. Configure o webhook e conecte o MR Pag
-
-1. No **MR Pag publicado**, abra **Cobranças → Integrações**. Copie a **URL do webhook** exibida junto ao formulário. Mantenha a aba aberta até salvar. Recarregar o formulário gera outro endereço para a integração que está sendo criada.
-2. Em outra aba, abra a mesma aplicação no Mercado Pago e vá em **Webhooks** ou **Configuração de Webhooks**.
-3. Selecione o ambiente **Teste**, cole a URL HTTPS copiada do MR Pag, marque o evento **Pagamentos** e salve. Copie a **assinatura secreta** exibida na configuração.
-4. Volte ao formulário do MR Pag. Cole o **Access Token** e a **Assinatura secreta do webhook** da mesma aplicação e do mesmo ambiente.
-5. Clique em **Conectar Mercado Pago**. A tela deve mostrar **Integração ativa** e a URL do webhook ativo. Confira se ela corresponde à cadastrada no painel do Mercado Pago.
+1. No MR Pag, abra **Cobranças → Integrações** e clique em **Conectar Mercado Pago**.
+2. Entre no Mercado Pago com a conta que receberá os Pix e autorize o MR Pag na página do provedor.
+3. Ao voltar, confira o número da **Conta Mercado Pago** e o ambiente exibido. As novas cobranças usarão essa conta. Se trocar de recebedor, as cobranças anteriores continuam vinculadas à conexão usada na emissão.
+4. Se o acesso for revogado, clique em **Conectar Mercado Pago** e autorize novamente a mesma conta recebedora para recuperar o acesso às cobranças vinculadas àquela conexão OAuth.
 
 ## 4. Emita e confira a primeira cobrança
 
@@ -51,8 +42,14 @@ O MR Pag usa o Mercado Pago para emitir cobranças avulsas via Pix e acompanhar 
 
 Se a emissão falhar, **Tentar emitir novamente** reutiliza a cobrança e a mesma chave de idempotência por até 15 minutos. Após esse prazo, confira o painel do Mercado Pago antes de emitir outra cobrança.
 
-## 5. Passe para produção
+## Configuração manual
 
-Na aplicação do Mercado Pago, obtenha o **Access Token de produção**. Abra novamente **Cobranças → Integrações** no MR Pag, copie a URL do novo formulário e cadastre-a na aba **Produção** da configuração de Webhooks do Mercado Pago. Marque **Pagamentos**, salve e copie a assinatura secreta correspondente. Use os dois valores de produção para salvar a nova integração no MR Pag.
+A integração por Access Token continua disponível em **Configuração manual**. Use o token e a assinatura do ambiente escolhido. Para emitir cobranças reais, use as credenciais de produção e cadastre o webhook na aba **Produção**.
 
-Se usar um Pix de baixo valor para validar a emissão e a baixa automática em produção, o pagamento movimenta dinheiro real. As cobranças anteriores continuam vinculadas à integração usada na emissão. Preserve as credenciais e webhooks anteriores enquanto houver pagamentos pendentes.
+
+1. No **MR Pag publicado**, abra **Cobranças → Integrações**. Copie a **URL do webhook** exibida junto ao formulário. Mantenha a aba aberta até salvar. Recarregar o formulário gera outro endereço para a integração que está sendo criada.
+2. Em outra aba, abra a mesma aplicação no Mercado Pago e vá em **Webhooks** ou **Configuração de Webhooks**.
+3. Selecione o ambiente **Teste**, cole a URL HTTPS copiada do MR Pag, marque o evento **Pagamentos** e salve. Copie a **assinatura secreta** exibida na configuração.
+4. Volte ao formulário do MR Pag. Cole o **Access Token** e a **Assinatura secreta do webhook** da mesma aplicação e do mesmo ambiente.
+5. Clique em **Salvar integração manual**. A tela deve mostrar **Integração ativa** e a URL do webhook ativo. Confira se ela corresponde à cadastrada no painel do Mercado Pago.
+

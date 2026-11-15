@@ -35,7 +35,7 @@ async function requestMercadoPago(token, path, options = {}) {
     ...options,
     redirect: 'manual',
     signal: AbortSignal.timeout(8000),
-    headers: { Authorization: `Bearer ${token}`, ...options.headers },
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers },
   });
   if (!response.ok) {
     await response.body?.cancel();
@@ -49,7 +49,8 @@ export async function verifyMercadoPagoToken(token) {
   return String(user.id || '');
 }
 
-async function verifySignature(request, paymentId, secret) {
+export async function verifySignature(request, paymentId, secret) {
+  if (!secret) return false;
   const pieces = new Map((request.headers.get('x-signature') || '').split(',').map(piece => piece.trim().split('=')));
   const ts = pieces.get('ts') || '';
   const signature = pieces.get('v1') || '';
@@ -62,9 +63,77 @@ async function verifySignature(request, paymentId, secret) {
   return crypto.subtle.verify('HMAC', key, Uint8Array.from(signature.match(/../g), byte => parseInt(byte, 16)), encoder.encode(manifest));
 }
 
+export async function exchangeMercadoPagoToken(env, parameters, liveMode) {
+  const response = await requestMercadoPago(null, '/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: env.MERCADO_PAGO_CLIENT_ID,
+      client_secret: env.MERCADO_PAGO_CLIENT_SECRET,
+      ...parameters,
+      test_token: !liveMode,
+    }),
+  });
+  const collectorId = String(response.user_id ?? '');
+  const expiresIn = Number(response.expires_in);
+  if (!/^\d{1,24}$/.test(collectorId) || response.live_mode !== liveMode ||
+      !Number.isSafeInteger(expiresIn) || expiresIn <= 0 ||
+      typeof response.access_token !== 'string' || !response.access_token ||
+      typeof response.refresh_token !== 'string' || !response.refresh_token) {
+    throw new Error('invalid_payment_oauth_grant');
+  }
+  return {
+    token: response.access_token, refreshToken: response.refresh_token, collectorId, liveMode,
+    expiresAt: Date.now() + expiresIn * 1000, clientId: env.MERCADO_PAGO_CLIENT_ID,
+  };
+}
+
+async function refreshCredentials(env, integration, credentials) {
+  if (credentials.clientId !== env.MERCADO_PAGO_CLIENT_ID || !env.MERCADO_PAGO_CLIENT_SECRET) {
+    throw new Error('payment_oauth_reconnect');
+  }
+  const now = Date.now();
+  const lock = now + 30_000;
+  const db = env.DB;
+  const acquired = await db.prepare(`UPDATE payment_integrations SET oauth_refresh_until=?
+    WHERE id=? AND credentials=? AND oauth_refresh_until<=? RETURNING id`)
+    .bind(lock, integration.id, integration.credentials, now).first();
+  if (!acquired) {
+    const updated = await db.prepare('SELECT * FROM payment_integrations WHERE id=?').bind(integration.id).first();
+    if (updated.credentials !== integration.credentials) {
+      const current = await openCredentials(env, updated);
+      if (current.expiresAt > Date.now()) return current;
+    }
+    if (credentials.expiresAt > Date.now()) return credentials;
+    throw new Error('payment_oauth_refresh_busy');
+  }
+
+  try {
+    const refreshed = await exchangeMercadoPagoToken(env, {
+      grant_type: 'refresh_token', refresh_token: credentials.refreshToken,
+    }, credentials.liveMode);
+    if (refreshed.collectorId !== credentials.collectorId) throw new Error('invalid_payment_oauth_grant');
+    const encrypted = await sealCredentials(env, integration.id, refreshed);
+    await db.prepare(`UPDATE payment_integrations SET credentials=?
+      WHERE id=? AND credentials=? AND oauth_refresh_until=?`)
+      .bind(encrypted, integration.id, integration.credentials, lock).run();
+    return refreshed;
+  } catch (error) {
+    if (credentials.expiresAt > Date.now()) return credentials;
+    if ([400, 401, 403].includes(error.statusCode)) throw new Error('payment_oauth_reconnect');
+    throw error;
+  } finally {
+    await db.prepare('UPDATE payment_integrations SET oauth_refresh_until=0 WHERE id=? AND oauth_refresh_until=?')
+      .bind(integration.id, lock).run();
+  }
+}
+
 export async function paymentProvider(env, integration) {
   if (integration.provider !== 'mercado-pago') throw new Error('unsupported_payment_provider');
-  const credentials = await openCredentials(env, integration);
+  let credentials = await openCredentials(env, integration);
+  if (integration.oauth_collector_id && credentials.expiresAt <= Date.now() + 60_000) {
+    credentials = await refreshCredentials(env, integration, credentials);
+  }
   return {
     create(charge) {
       return requestMercadoPago(credentials.token, '/v1/payments', {

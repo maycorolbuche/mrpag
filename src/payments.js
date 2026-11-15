@@ -1,4 +1,7 @@
-import { paymentProvider, sealCredentials, verifyMercadoPagoToken } from './payment-providers.js';
+import { paymentProvider, sealCredentials, verifyMercadoPagoToken, verifySignature } from './payment-providers.js';
+import {
+  finishMercadoPagoOAuth, oauthCallback, oauthConnect, oauthReady, oauthWebhook, startMercadoPagoOAuth,
+} from './mercado-pago-oauth.js';
 
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const minutes = 60_000;
@@ -30,17 +33,29 @@ function webhookUrl(origin, id) {
 }
 
 async function currentIntegration(db, accountId) {
-  return db.prepare(`SELECT i.id, i.provider FROM payment_integration_defaults d
+  return db.prepare(`SELECT i.id, i.provider, i.oauth_collector_id, i.oauth_live_mode FROM payment_integration_defaults d
     JOIN payment_integrations i ON i.id=d.integration_id AND i.account_id=d.account_id
     WHERE d.account_id=?`).bind(accountId).first();
 }
 
-async function integrationSettings({ request, db, env, accountId, origin, show, redirect, body }) {
+const oauthErrors = {
+  unavailable: 'A autorização do Mercado Pago ainda não está configurada neste ambiente.',
+  expired: 'A autorização expirou ou já foi usada. Clique em Conectar Mercado Pago para iniciar novamente.',
+  denied: 'A autorização do Mercado Pago foi cancelada ou recusada.',
+  failed: 'Não foi possível conectar ao Mercado Pago. Tente novamente ou fale com o administrador.',
+  busy: 'A conexão está sendo renovada. Aguarde alguns instantes e tente conectar novamente.',
+};
+
+async function integrationSettings({ request, url, db, env, accountId, origin, show, redirect, body }) {
+  const oauthStatus = url.searchParams.get('oauth');
   const integration = await currentIntegration(db, accountId);
   const formId = request.method === 'GET' ? crypto.randomUUID() : body.integration_id;
   const render = (error = null, status = 200) => show('payment-settings', {
     integration, formId, endpoint: uuid.test(formId || '') ? webhookUrl(origin, formId) : '',
-    activeEndpoint: integration ? webhookUrl(origin, integration.id) : '', error,
+    activeEndpoint: integration ? origin + (integration.oauth_collector_id ? oauthWebhook : `/webhooks/mercado-pago/${integration.id}`) : '',
+    oauthReady: oauthReady(env, origin), oauthConnect, manualError: request.method === 'POST' ? error : null,
+    error: request.method === 'GET' && Object.hasOwn(oauthErrors, oauthStatus) ? oauthErrors[oauthStatus] : null,
+    success: oauthStatus === 'connected' && integration?.oauth_collector_id ? 'Conta do Mercado Pago conectada.' : null,
   }, status);
   if (request.method === 'GET') return render();
   const token = (body.access_token || '').trim();
@@ -125,6 +140,8 @@ function paymentFailure(error) {
   const status = error.statusCode;
   if (Number.isInteger(status) && status >= 400 && status <= 599) return `http_${status}`;
   if (error.name === 'TimeoutError' || error.name === 'AbortError') return 'timeout';
+  if (error.message === 'payment_oauth_reconnect') return 'oauth_reconnect';
+  if (error.message === 'payment_oauth_refresh_busy') return 'oauth_refresh_busy';
   if (error.message === 'payment_integration_key_missing') return 'integration_key';
   if (error.name === 'OperationError') return 'credentials_unreadable';
   if (['payment_provider_data_mismatch', 'payment_provider_timestamp_missing', 'invalid_provider_payment_id'].includes(error.message)) return 'unexpected_response';
@@ -145,6 +162,8 @@ function paymentFailureMessage(code) {
     return `Mercado Pago (HTTP ${status}). ${messages[status] || 'Confira a situação no Mercado Pago e tente novamente mais tarde.'}`;
   }
   const messages = {
+    oauth_reconnect: 'Autorize novamente a mesma conta do Mercado Pago em Cobranças → Integrações.',
+    oauth_refresh_busy: 'O acesso ao Mercado Pago está sendo renovado. Tente novamente em instantes.',
     timeout: 'O Mercado Pago demorou para responder. Confira a situação no painel do provedor.',
     integration_key: 'A chave de criptografia da integração não está configurada no Worker.',
     credentials_unreadable: 'O MR Pag não conseguiu ler as credenciais. Confira se a chave de criptografia do Worker é a mesma usada ao salvar a integração.',
@@ -172,6 +191,8 @@ async function issue({ db, env }, charge) {
 
 export async function paymentRoutes(context) {
   const { request, url, db, env, accountId, origin, body, show, redirect } = context;
+  if (url.pathname === oauthConnect && request.method === 'POST') return startMercadoPagoOAuth(context);
+  if (url.pathname === oauthCallback && request.method === 'GET') return finishMercadoPagoOAuth(context);
   if (url.pathname === '/account/payments') return integrationSettings(context);
   if (url.pathname === route && request.method === 'GET') {
     const offset = Math.min(100000, Math.max(0, (parseInt(url.searchParams.get('page'), 10) || 1) - 1) * 25);
@@ -202,11 +223,14 @@ export async function paymentRoutes(context) {
     if (!customer?.email || !/^\d{11}$|^\d{14}$/.test(customer.document || '')) {
       return render('Selecione um cliente ativo com e-mail e CPF ou CNPJ cadastrados.', 422);
     }
+    const notificationUrl = integration.oauth_collector_id
+      ? `${origin}${oauthWebhook}?charge=${fields.request_id}`
+      : webhookUrl(origin, integration.id);
     const payload = {
       transaction_amount: cents / 100, description, payment_method_id: 'pix',
       date_of_expiration: `${fields.due_date}T23:59:59.000-03:00`,
       external_reference: fields.request_id,
-      ...(origin.startsWith('https://') ? { notification_url: webhookUrl(origin, integration.id) } : {}),
+      ...(origin.startsWith('https://') ? { notification_url: notificationUrl } : {}),
       payer: { email: customer.email, identification: { type: customer.document.length === 11 ? 'CPF' : 'CNPJ', number: customer.document } },
     };
     const created = await db.prepare(`INSERT INTO charges(id,account_id,customer_id,integration_id,
@@ -243,9 +267,23 @@ export async function paymentWebhook(request, env, url) {
   const providerId = url.searchParams.get('data.id') || '';
   const reply = status => new Response(null, { status });
   if (request.method !== 'POST') return reply(405);
-  if (!uuid.test(integrationId) || !/^\d{1,24}$/.test(providerId)) return reply(400);
+  if (!/^\d{1,24}$/.test(providerId)) return reply(400);
+  if (url.pathname === oauthWebhook) {
+    if (!await verifySignature(request, providerId, env.MERCADO_PAGO_WEBHOOK_SECRET)) return reply(401);
+    const chargeId = url.searchParams.get('charge') || '';
+    if (chargeId && !uuid.test(chargeId)) return reply(400);
+    const charge = await env.DB.prepare(`SELECT c.* FROM charges c JOIN payment_integrations i ON i.id=c.integration_id
+      WHERE i.oauth_collector_id IS NOT NULL AND ${chargeId ? 'c.id=?' : 'c.provider_id=?'}`)
+      .bind(chargeId || providerId).first();
+    if (!charge) return reply(200);
+    if (charge.provider_id && charge.provider_id !== providerId) return reply(400);
+    const provider = await chargeProvider(env, env.DB, charge);
+    await saveProviderState(env.DB, charge, provider, await provider.get(providerId), providerId);
+    return reply(200);
+  }
+  if (!uuid.test(integrationId)) return reply(400);
   const integration = await env.DB.prepare('SELECT * FROM payment_integrations WHERE id=?').bind(integrationId).first();
-  if (!integration) return reply(404);
+  if (!integration || integration.oauth_collector_id) return reply(404);
   const provider = await paymentProvider(env, integration);
   if (!await provider.verify(request, providerId)) return reply(401);
   const payment = await provider.get(providerId);
