@@ -4,10 +4,10 @@ O MR Pag usa o Mercado Pago para emitir cobranças Pix avulsas e acompanhar o pa
 
 ## 1. Configure a aplicação no Mercado Pago Developers
 
-1. Abra [Suas integrações](https://www.mercadopago.com.br/developers/panel/app) e selecione ou crie uma aplicação para o MR Pag. Escolha **Checkout Transparente → API de Pagamentos (Payments)** quando essas opções aparecerem. O MR Pag usa `/v1/payments`.
+1. Abra [Suas integrações](https://www.mercadopago.com.br/developers/panel/app) e selecione ou crie uma aplicação para o MR Pag. Escolha **Checkout Transparente → API de Orders** quando essas opções aparecerem. As novas cobranças Pix usam `/v1/orders`.
 2. Nos **Detalhes da aplicação**, clique em **Editar**. Adicione a URL de redirecionamento `https://mrpag.mxsoft.com.br/account/payments/mercado-pago/callback` e habilite **PKCE** para o fluxo de código de autorização. Se usar outro domínio, substitua a origem pelo valor de `APP_URL`. A URL de retorno precisa coincidir com a registrada no Mercado Pago.
 3. Copie o **Client ID** e o **Client Secret** da aplicação. Os dois valores identificam a aplicação na troca e na renovação de tokens.
-4. Na mesma aplicação, abra **Configuração de webhooks** e selecione **Produção**. Cadastre `https://mrpag.mxsoft.com.br/webhooks/mercado-pago/oauth`, marque **Pagamentos (legacy)** e salve. Copie a **assinatura secreta** exibida após salvar. Preserve as URLs das integrações manuais antigas enquanto houver pagamentos pendentes. Se uma delas já ocupar a URL de Produção desta aplicação, use uma aplicação dedicada ao OAuth para manter o webhook antigo cadastrado.
+4. Na mesma aplicação, abra **Configuração de webhooks** e selecione **Produção**. Cadastre `https://mrpag.mxsoft.com.br/webhooks/mercado-pago/oauth`, marque **Order (Mercado Pago)** e salve. Se a mesma aplicação já tiver cobranças emitidas pela API anterior, mantenha também **Pagamentos (legacy)**. Copie a **assinatura secreta** exibida após salvar. Preserve as URLs das integrações manuais antigas enquanto houver pagamentos pendentes. Se uma delas já ocupar a URL de Produção desta aplicação, use uma aplicação dedicada ao OAuth para manter o webhook antigo cadastrado.
 5. Para um ambiente de homologação, cadastre o webhook e a URL de redirecionamento públicos desse ambiente e use a aba **Teste** para o webhook. Configure `MERCADO_PAGO_OAUTH_MODE=test` no Worker de homologação. A emissão de Pix depende dos meios habilitados pelo Mercado Pago naquele ambiente.
 
 [Documentação do OAuth e PKCE](https://www.mercadopago.com.br/developers/pt/docs/split-payments/split-1-1/additional-content/security/oauth/creation)
@@ -42,14 +42,22 @@ Se for uma instalação nova sem `PAYMENT_INTEGRATION_KEY`, gere uma chave hexad
 
 Se a emissão falhar, **Tentar emitir novamente** reutiliza a cobrança e a mesma chave de idempotência por até 15 minutos. Após esse prazo, confira o painel do Mercado Pago antes de emitir outra cobrança.
 
+## Atualização de uma integração que já emitia Pix
+
+As cobranças anteriores continuam usando a API de Payments, o token e o webhook da integração original. Mantenha a aplicação antiga, suas credenciais e o evento **Pagamentos (legacy)** ativos enquanto houver cobranças desse tipo em acompanhamento.
+
+Se trocar a aplicação **OAuth** por outra, mantenha o webhook antigo apontando para `/webhooks/mercado-pago/oauth`. Antes de substituir os valores atuais no Cloudflare, configure `MERCADO_PAGO_LEGACY_CLIENT_ID`, `MERCADO_PAGO_LEGACY_CLIENT_SECRET` e `MERCADO_PAGO_LEGACY_WEBHOOK_SECRET` com os dados da aplicação anterior. Configure os secrets principais com os valores da nova aplicação e autorize novamente a conta pelo botão **Conectar Mercado Pago**. Se já usava a mesma aplicação e ela está habilitada para Orders, basta habilitar o novo evento no webhook, preservando o evento anterior.
+
 ## Configuração manual
 
 A integração por Access Token continua disponível em **Configuração manual**. Use o token e a assinatura do ambiente escolhido. Para emitir cobranças reais, use as credenciais de produção e cadastre o webhook na aba **Produção**.
 
 
-1. No **MR Pag publicado**, abra **Cobranças → Integrações**. Copie a **URL do webhook** exibida junto ao formulário. Mantenha a aba aberta até salvar. Recarregar o formulário gera outro endereço para a integração que está sendo criada.
+1. No **MR Pag publicado**, abra **Cobranças → Integrações → Configuração manual**. Copie a **URL do webhook** exibida junto ao formulário. Mantenha a aba aberta até salvar. Recarregar o formulário gera outro endereço para a integração que está sendo criada.
 2. Em outra aba, abra a mesma aplicação no Mercado Pago e vá em **Webhooks** ou **Configuração de Webhooks**.
-3. Selecione o ambiente **Teste**, cole a URL HTTPS copiada do MR Pag, marque o evento **Pagamentos** e salve. Copie a **assinatura secreta** exibida na configuração.
+3. Selecione o ambiente **Teste**, cole a URL HTTPS copiada do MR Pag, marque o evento **Order (Mercado Pago)** e salve. Copie a **assinatura secreta** exibida na configuração.
 4. Volte ao formulário do MR Pag. Cole o **Access Token** e a **Assinatura secreta do webhook** da mesma aplicação e do mesmo ambiente.
 5. Clique em **Salvar integração manual**. A tela deve mostrar **Integração ativa** e a URL do webhook ativo. Confira se ela corresponde à cadastrada no painel do Mercado Pago.
 
+
+[Guia oficial de migração de Payments para Orders](https://www.mercadopago.com.br/developers/pt/docs/checkout-api-orders/resources/migrate-payments-to-orders)
