@@ -7,14 +7,14 @@ import { token } from './security.js';
 import { businessDate, chargeMoney, displayDueDate, paymentLink, chargeEmailHistory, queueManualChargeEmail } from './charge-emails.js';
 import { orderIdPattern, pixOrderPayload, readPixOrder } from './mercado-pago-orders.js';
 
-const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+export const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const minutes = 60_000;
-const maximumRetryAge = 15 * minutes;
+export const maximumRetryAge = 15 * minutes;
 const statuses = {
   pending: 'pending', in_process: 'pending', authorized: 'pending', in_mediation: 'in_mediation',
   approved: 'paid', cancelled: 'cancelled', rejected: 'rejected', refunded: 'refunded', charged_back: 'charged_back',
 };
-const labels = {
+export const chargeLabels = {
   creating: 'Aguardando emissão', creation_error: 'Emissão não confirmada', pending: 'Aguardando pagamento',
   expired: 'Vencida', paid: 'Paga', cancelled: 'Cancelada', rejected: 'Recusada',
   refunded: 'Estornada', charged_back: 'Contestada', in_mediation: 'Em análise',
@@ -24,7 +24,7 @@ const route = '/charges';
 function present(charge) {
   const status = charge.status === 'pending' && charge.due_date < businessDate(new Date()) ? 'expired' : charge.status;
   return {
-    ...charge, status, label: labels[status], amount: chargeMoney.format(charge.amount_cents / 100),
+    ...charge, status, label: chargeLabels[status], amount: chargeMoney.format(charge.amount_cents / 100),
     date: displayDueDate(charge.due_date),
     canCancel: status === 'pending' && !!charge.provider_id,
     canRetry: !charge.provider_id && Date.now() - charge.created_at <= maximumRetryAge,
@@ -35,7 +35,7 @@ function webhookUrl(origin, id) {
   return `${origin}/webhooks/mercado-pago/${id}`;
 }
 
-async function currentIntegration(db, accountId) {
+export async function currentIntegration(db, accountId) {
   return db.prepare(`SELECT i.id, i.provider, i.oauth_collector_id, i.oauth_live_mode FROM payment_integration_defaults d
     JOIN payment_integrations i ON i.id=d.integration_id AND i.account_id=d.account_id
     WHERE d.account_id=?`).bind(accountId).first();
@@ -90,13 +90,13 @@ async function integrationSettings({ request, url, db, env, accountId, origin, s
   return redirect('/account/payments');
 }
 
-function formAmount(value) {
+export function formAmount(value) {
   if (!/^\d{1,7}([.,]\d{1,2})?$/.test(value)) return 0;
   const [whole, fraction = ''] = value.replace(',', '.').split('.');
   return Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
 }
 
-function validDueDate(value) {
+export function validDueDate(value) {
   const now = new Date();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value < businessDate(now)) return false;
   const iso = new Date(`${value}T12:00:00Z`);
@@ -207,7 +207,7 @@ function paymentFailureMessage(code) {
   return messages[code] || 'O motivo da falha anterior não foi registrado. Confira a cobrança no painel do Mercado Pago.';
 }
 
-async function issue({ db, env }, charge) {
+export async function issue({ db, env }, charge) {
   if (charge.provider_id || Date.now() - charge.created_at > maximumRetryAge) return;
   try {
     const provider = await chargeProvider(env, db, charge);
@@ -223,6 +223,26 @@ async function issue({ db, env }, charge) {
     await db.prepare("UPDATE charges SET status='creation_error', creation_failure=? WHERE id=? AND account_id=? AND provider_id IS NULL")
       .bind(reason, charge.id, charge.account_id).run();
   }
+}
+
+export function insertPixCharge(db, { id, accountId, integrationId, customer, description, cents, dueDate, actorEmail, series }) {
+  const now = Date.now();
+  const payload = pixOrderPayload({
+    id, description, cents, dueDate, now,
+    payer: { email: customer.email, identification: { type: customer.document.length === 11 ? 'CPF' : 'CNPJ', number: customer.document } },
+  });
+  const values = "?,?,?,?,?,?,?,?,?,'orders',?,1,?,?";
+  const args = [id, accountId, customer.id, integrationId, description, cents, dueDate, JSON.stringify(payload), now,
+    token(), actorEmail, series?.id ?? null];
+  const source = series
+    ? `SELECT ${values} FROM charge_recurring_series r JOIN customers u ON u.id=r.customer_id AND u.account_id=r.account_id
+      WHERE r.id=? AND r.account_id=? AND r.revision=? AND r.status='active'
+        AND r.next_due_date=? AND u.active=1 AND u.email=? AND u.document=?`
+    : `VALUES (${values})`;
+  if (series) args.push(series.id, accountId, series.revision, series.next_due_date, customer.email, customer.document);
+  return db.prepare(`INSERT INTO charges(id,account_id,customer_id,integration_id,
+    description,amount_cents,due_date,provider_payload,created_at,provider_api,public_token,auto_email,issuer_email,recurring_series_id)
+    ${source} ON CONFLICT DO NOTHING RETURNING *`).bind(...args);
 }
 
 export async function publicPayment(db, publicToken) {
@@ -267,16 +287,10 @@ export async function paymentRoutes(context) {
     if (!customer?.email || !/^\d{11}$|^\d{14}$/.test(customer.document || '')) {
       return render('Selecione um cliente ativo com e-mail e CPF ou CNPJ cadastrados.', 422);
     }
-    const now = Date.now();
-    const payload = pixOrderPayload({
-      id: fields.request_id, description, cents, dueDate: fields.due_date, now,
-      payer: { email: customer.email, identification: { type: customer.document.length === 11 ? 'CPF' : 'CNPJ', number: customer.document } },
-    });
-    const created = await db.prepare(`INSERT INTO charges(id,account_id,customer_id,integration_id,
-      description,amount_cents,due_date,provider_payload,created_at,provider_api,public_token,auto_email,issuer_email)
-      VALUES (?,?,?,?,?,?,?,?,?,'orders',?,1,?)
-      ON CONFLICT(id) DO NOTHING RETURNING *`)
-      .bind(fields.request_id, accountId, customer.id, integration.id, description, cents, fields.due_date, JSON.stringify(payload), now, token(), actorEmail).first();
+    const created = await insertPixCharge(db, {
+      id: fields.request_id, accountId, integrationId: integration.id, customer, description, cents,
+      dueDate: fields.due_date, actorEmail,
+    }).first();
     if (!created) return redirect(`${route}/${fields.request_id}`);
     await issue(context, created);
     return redirect(`${route}/${created.id}`);

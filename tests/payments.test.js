@@ -370,3 +370,83 @@ test('cancelamento de cobrança legada usa a API Payments', async t => {
   assert.equal(result.status, 303);
   assert.equal((await f.db.prepare('SELECT status FROM charges').first()).status, 'cancelled');
 });
+
+test('recorrência gera uma cobrança por ciclo, reutiliza e-mail e permite editar, pausar e encerrar', async t => {
+  const f = await setup(t, { origin: 'https://pag.example.com' });
+  await configure(f);
+  const root = '/charges/recurring';
+  const id = crypto.randomUUID();
+  const due = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo' }).format(new Date(Date.now() + 86400000));
+  const fields = { request_id: id, customer_id: '1', description: 'Mensalidade', amount: '49,90',
+    interval_months: '2', first_due: due, lead_days: '5' };
+  assert.equal((await post(f.agent, root + '/new', root, { ...fields, interval_months: '3' })).status, 422);
+  assert.equal((await post(f.agent, root + '/new', root, fields)).headers.get('location'), root + '/' + id);
+  assert.match((await f.agent.request(root)).text, /Bimestral/);
+  const path = root + '/' + id;
+  const worker = await f.mf.getWorker();
+  const run = () => worker.scheduled({ cron: '*/5 * * * *' });
+  await post(f.agent, path, path + '/pause', {});
+  await run();
+  assert.equal((await f.db.prepare('SELECT count(*) AS n FROM charges').first()).n, 0);
+
+  await post(f.agent, path, path + '/resume', {});
+  await Promise.all([run(), run()]);
+  await run();
+  const charge = await f.db.prepare('SELECT id,amount_cents,due_date,recurring_series_id FROM charges').first();
+  assert.equal(charge.recurring_series_id, id);
+  assert.equal(charge.due_date, due);
+  assert.equal((await f.db.prepare('SELECT count(*) AS n FROM charges').first()).n, 1);
+  assert.ok(f.calls.filter(call => call.key).every(call => call.key === charge.id));
+  assert.equal(f.messages.length, 1);
+  assert.deepEqual(f.messages[0].bcc, ['admin@mrpag.local']);
+  assert.match((await f.agent.request(path)).text, new RegExp('/charges/' + charge.id));
+  assert.match((await f.agent.request('/charges/' + charge.id)).text, /Ver série/);
+  const expected = new Date(due + 'T12:00:00Z');
+  const day = expected.getUTCDate();
+  expected.setUTCDate(1);
+  expected.setUTCMonth(expected.getUTCMonth() + 2);
+  const monthEnd = new Date(Date.UTC(expected.getUTCFullYear(), expected.getUTCMonth() + 1, 0)).getUTCDate();
+  expected.setUTCDate(Math.min(day, monthEnd));
+  assert.equal((await f.db.prepare('SELECT next_due_date FROM charge_recurring_series').first()).next_due_date,
+    expected.toISOString().slice(0, 10));
+
+  await post(f.agent, path, path, { description: 'Mensalidade atualizada', amount: '59,90', lead_days: '3' });
+  assert.equal((await f.db.prepare('SELECT amount_cents FROM charge_recurring_series').first()).amount_cents, 5990);
+  assert.equal((await f.db.prepare('SELECT amount_cents FROM charges').first()).amount_cents, 4990);
+  await post(f.agent, path, path + '/end', {});
+  await post(f.agent, '/charges/new', path + '/resume', {});
+  assert.equal((await f.db.prepare('SELECT status FROM charge_recurring_series').first()).status, 'ended');
+});
+
+test('recorrências aceitam os quatro intervalos e preservam a referência ao ajustar meses curtos', async t => {
+  const f = await setup(t, { bindings: { MAIL_MODE: 'disabled' } });
+  await configure(f);
+  const root = '/charges/recurring';
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const ids = [];
+  for (const interval of [1, 2, 6, 12]) {
+    const id = crypto.randomUUID();
+    ids.push(id);
+    const response = await post(f.agent, root + '/new', root, {
+      request_id: id, customer_id: '1', description: 'Serviço', amount: '49,90',
+      interval_months: String(interval), first_due: tomorrow, lead_days: '0',
+    });
+    assert.equal(response.status, 303);
+  }
+  const listing = await f.agent.request(root);
+  for (const label of ['Mensal', 'Bimestral', 'Semestral', 'Anual']) assert.match(listing.text, new RegExp('>' + label + '<'));
+  // An annual February cycle keeps the day-31 reference and uses the last available day.
+  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  const [year, month] = today.split('-').map(Number);
+  const targetYear = month <= 2 ? year : year + 1;
+  const currentDate = `${targetYear - 1}-02-28`;
+  await f.db.prepare(`UPDATE charge_recurring_series SET due_day=31,next_due_date=?,next_issue_date=?
+    WHERE id=?`).bind(currentDate, currentDate, ids[3]).run();
+  const worker = await f.mf.getWorker();
+  await worker.scheduled({ cron: '*/5 * * * *' });
+  const targetDay = new Date(Date.UTC(targetYear,2,0)).getUTCDate();
+  const expected = `${targetYear}-02-${targetDay}`;
+  const actual = await f.db.prepare('SELECT next_due_date FROM charge_recurring_series WHERE id=?').bind(ids[3]).first();
+  const days = [(await f.db.prepare('SELECT due_date FROM charges WHERE recurring_series_id=?').bind(ids[3]).first())?.due_date, actual.next_due_date];
+  assert.ok(days.includes(expected) || (today >= expected && days.includes(`${targetYear + 1}-02-${new Date(Date.UTC(targetYear + 1,2,0)).getUTCDate()}`)));
+});
