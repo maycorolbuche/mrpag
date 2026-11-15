@@ -4,18 +4,35 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-08-01",
   "workers_dev": true,
-  "build": { "command": "npm run build" },
-  "assets": { "directory": "./dist", "binding": "ASSETS" },
-  "d1_databases": [{
-    "binding": "DB",
-    "database_name": "mrpag-db",
-    "database_id": "00000000-0000-0000-0000-000000000000",
-    "migrations_dir": "migrations"
-  }],
+  "build": {
+    "command": "npm run build"
+  },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mrpag-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
   "vars": {
     "APP_URL": "https://mrpag.SEU-SUBDOMINIO.workers.dev",
-    "MAIL_MODE": "disabled"
+    "MAIL_MODE": "smtp",
+    "SMTP_HOST": "mail.mxsoft.com.br",
+    "SMTP_USER": "noreply@mxsoft.com.br",
+    "MAIL_FROM": "MX Soft - Cobrança <noreply@mxsoft.com.br>"
   },
-  "triggers": { "crons": ["0 4 * * *", "*/5 * * * *"] },
-  "observability": { "enabled": true }
+  "triggers": {
+    "crons": [
+      "0 4 * * *",
+      "*/5 * * * *"
+    ]
+  },
+  "observability": {
+    "enabled": true
+  }
 }
