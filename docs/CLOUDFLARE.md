@@ -22,7 +22,7 @@ npm start
 Se a branch já existir localmente, use `git switch feat/cloudflare-worker`. Após o merge, pode usar `git switch main` e `git pull origin main`.
 
 Antes da primeira migration, ajuste `SEED_EMAIL` e `SEED_PASSWORD` no `.dev.vars` se quiser credenciais próprias. `npm run db:migrate:local` também cria o primeiro administrador quando o banco estiver vazio. Abra http://localhost:8787, entre com as credenciais configuradas e troque a senha inicial. Os valores do exemplo são `admin@mrpag.local` e `MrPag@2026!Inicial`. Teste logout, login, alterar senha e esqueci a senha. O link de recuperação aparece no terminal com `MAIL_MODE=log`. Não é necessário login Cloudflare nesta etapa.
-Se `SEED_EMAIL` ou `SEED_PASSWORD` estiver ausente no ambiente local, o seed usa o valor padrão correspondente. Um valor vazio ou inválido é rejeitado.
+Se `SEED_EMAIL` ou `SEED_PASSWORD` estiver ausente no ambiente local, o seed usa o valor padrão correspondente. A senha inicial pode ter um único caractere. A troca obrigatória no primeiro acesso exige uma nova senha de 12 a 128 caracteres.
 
 
 O seed é idempotente: executá-lo de novo não redefine a senha. As tabelas locais e remotas são separadas; os usuários criados localmente não aparecem no remoto. O `.env` da versão Express não é lido pelo novo projeto. Preserve `data/` caso queira consultar o banco anterior.
@@ -100,10 +100,10 @@ Cole o valor quando solicitado. O mesmo valor precisa ser usado para gerar a sen
 ```dotenv
 REMOTE_PASSWORD_PEPPER=O-MESMO-VALOR-DO-SECRET
 REMOTE_SEED_EMAIL=seu-email@seu-dominio.com.br
-REMOTE_SEED_PASSWORD="Uma senha pessoal inicial de pelo menos 12 caracteres"
+REMOTE_SEED_PASSWORD="Sua senha inicial"
 ```
 
-Use uma senha própria; o seed remoto rejeita a senha default local. O arquivo é ignorado pelo Git. Se a senha contiver `#` ou espaços, mantenha as aspas. Execute:
+Defina uma senha inicial para o acesso remoto. O arquivo é ignorado pelo Git. Se a senha contiver `#` ou espaços, mantenha as aspas. Execute:
 
 ```powershell
 npm run db:seed:remote
