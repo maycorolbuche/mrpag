@@ -154,6 +154,11 @@ async function chargeProvider(env, db, charge) {
   return paymentProvider(env, integration, charge.provider_api);
 }
 
+export async function refreshChargePayment(env, charge) {
+  const provider = await chargeProvider(env, env.DB, charge);
+  return saveProviderState(env.DB, charge, provider, await provider.get(charge.provider_id), charge.provider_id);
+}
+
 async function cancelCharge(env, db, charge) {
   const provider = await chargeProvider(env, db, charge);
   const id = charge.provider_id;
@@ -324,7 +329,7 @@ export async function paymentRoutes(context) {
       charge: display, error, emailHistory, mailRequestId: crypto.randomUUID(),
       publicUrl: charge.provider_id && charge.public_token ? paymentLink(origin, charge.public_token) : null,
       canSendEmail: display.status === 'pending' && !!(charge.pix_code || charge.pix_image) &&
-        !!charge.customer_email && !emailHistory.some(entry => ['queued', 'sending'].includes(entry.status)),
+        !!charge.customer_email && !emailHistory.some(entry => entry.purpose === 'charge' && ['queued', 'sending'].includes(entry.status)),
     }, status);
   };
   if (!action && request.method === 'GET') {
@@ -344,8 +349,7 @@ export async function paymentRoutes(context) {
   }
   if (action === 'refresh' && charge.provider_id) {
     try {
-      const provider = await chargeProvider(env, db, charge);
-      await saveProviderState(db, charge, provider, await provider.get(charge.provider_id), charge.provider_id);
+      await refreshChargePayment(env, charge);
     } catch (error) {
       return detail(paymentFailureMessage(paymentFailure(error)), 502);
     }

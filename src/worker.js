@@ -1,10 +1,11 @@
+import { notificationSettings, queueChargeReminders } from './charge-notifications.js';
 import { dispatchRecurringCharges, recurringRoutes } from './recurring-charges.js';
 import { dispatchChargeEmails } from './charge-emails.js';
 import { render } from './generated/templates.js';
 import { token, digest, hashPassword, verifyPassword, passwordError, limited } from './security.js';
 import { mailSendingEnabled, sendRecovery } from './mail.js';
 import { customerRoutes } from './customers.js';
-import { paymentRoutes, paymentWebhook, publicPayment, publicPaymentStatus } from './payments.js';
+import { paymentRoutes, paymentWebhook, publicPayment, publicPaymentStatus, refreshChargePayment } from './payments.js';
 
 const generic = 'Se o e-mail estiver cadastrado, você receberá um link para redefinir sua senha.';
 const dummy = `pbkdf2-sha256:100000:${'0'.repeat(64)}:${'0'.repeat(64)}`;
@@ -104,7 +105,7 @@ async function handle(request, env) {
     if ((origin && origin !== config.origin) || !session || body._csrf !== session.csrf) return auth('error', { error: 'Sua sessão expirou. Recarregue a página e tente novamente.' }, 403);
   }
   const isPaymentRoute = path === '/account/payments' || path.startsWith('/account/payments/mercado-pago/') || path === '/charges' || path.startsWith('/charges/');
-  const protectedRoute = isPaymentRoute || ['/app', '/account', '/account/password', '/logout'].includes(path) || path === '/customers' || path.startsWith('/customers/');
+  const protectedRoute = isPaymentRoute || ['/app', '/account', '/account/password', '/account/notifications', '/logout'].includes(path) || path === '/customers' || path.startsWith('/customers/');
   if (protectedRoute && !user) return redirect('/login');
   if (protectedRoute && user.must_change && !['/account/password','/logout'].includes(path)) return redirect('/account/password');
   if (path === '/' && request.method === 'GET') return redirect(user ? '/app' : '/login');
@@ -168,6 +169,9 @@ async function handle(request, env) {
     await db.prepare('UPDATE accounts SET name=?,updated_at=? WHERE id=?').bind(name,Date.now(),user.account_id).run();
     return redirect('/account?saved=1');
   }
+  if (path === '/account/notifications') {
+    return notificationSettings({ request, db, accountId: user.account_id, body, show, redirect });
+  }
   if (isPaymentRoute) {
     const context = { request, url, db, env, accountId: user.account_id, actorEmail: user.email, origin: config.origin, sessionHash, body, show, redirect };
     const result = path === '/charges/recurring' || path.startsWith('/charges/recurring/')
@@ -216,7 +220,8 @@ export default {
       ctx.waitUntil(dispatchRecurringCharges(env));
       if (mailSendingEnabled(env)) {
         const { origin } = configuration(env, new Request('https://scheduled.invalid'));
-        ctx.waitUntil(dispatchChargeEmails(env, origin));
+        ctx.waitUntil(queueChargeReminders(env.DB, new Date(event.scheduledTime))
+          .finally(() => dispatchChargeEmails(env, origin, refreshChargePayment)));
       }
     } else {
       ctx.waitUntil(cleanup(env));

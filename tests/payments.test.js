@@ -14,6 +14,7 @@ async function setup(t, { origin, mailApi, bindings = {}, expectedPayer = 'pix@e
   let payment;
   let failureStatus;
   let cancellationFailure;
+  let refreshFailure;
   const f = await fixture({
     bindings: { PAYMENT_INTEGRATION_KEY: 'a'.repeat(64), ...(origin ? { APP_URL: origin } : {}), ...bindings },
     mailApi,
@@ -36,6 +37,7 @@ async function setup(t, { origin, mailApi, bindings = {}, expectedPayer = 'pix@e
         }
         return Response.json(payment);
       }
+      if (request.method === 'GET' && refreshFailure) return Response.json({}, { status: refreshFailure });
       if (request.method === 'POST') {
         const payload = await request.json();
         if (path === '/v1/payments') {
@@ -79,6 +81,7 @@ async function setup(t, { origin, mailApi, bindings = {}, expectedPayer = 'pix@e
     ...f, calls,
     failFirst(status) { failureStatus = status; },
     failCancellation(status) { cancellationFailure = status; },
+    failRefresh(status) { refreshFailure = status; },
     updatePayment(values) { Object.assign(payment, values); },
     approveOrder(at) {
       Object.assign(payment, { status: 'processed', status_detail: 'accredited',
@@ -275,8 +278,13 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   assert.doesNotMatch(paid.text, /codigo-pix-de-teste|payment-status\.js/);
   assert.deepEqual(JSON.parse((await publicAgent.request(statusUrl)).text), { status: 'paid' });
   await post(f.agent, path, path + '/email', { mail_request_id: crypto.randomUUID() });
+  await post(f.agent, path, path + '/refresh', {});
   await run();
-  assert.equal(f.messages.length, 2);
+  assert.equal(f.messages.length, 3);
+  assert.match(f.messages[2].subject, /Pagamento confirmado/);
+  assert.equal(keys[2], 'confirmation/' + chargeId);
+  assert.deepEqual(f.messages[2].to, ['pix@example.com']);
+  assert.deepEqual(f.messages[2].bcc, ['admin@mrpag.local']);
 });
 
 test('uma falha temporária do serviço de e-mail é registrada e usa a mesma chave na nova tentativa', async t => {
@@ -426,6 +434,9 @@ test('recorrência gera uma cobrança por ciclo, reutiliza e-mail e permite edit
   await post(f.agent, path, path + '/end', {});
   await post(f.agent, '/charges/new', path + '/resume', {});
   assert.equal((await f.db.prepare('SELECT status FROM charge_recurring_series').first()).status, 'ended');
+  await f.db.prepare("UPDATE charges SET status='creation_error',provider_id=NULL,created_at=0 WHERE id=?").bind(charge.id).run();
+  assert.match((await f.agent.request(root)).text, /Emissão a conferir/);
+  assert.match((await f.agent.request(path)).text, /Confira a emissão no Mercado Pago/);
 });
 
 test('recorrências aceitam os quatro intervalos e preservam a referência ao ajustar meses curtos', async t => {
@@ -487,4 +498,52 @@ test('domínio em branco mantém o endereço real e o gatilho antigo continua co
   const path = `/charges/${chargeId}`;
   await post(f.agent, path, path + '/retry', {});
   assert.equal((await f.db.prepare('SELECT recipient FROM charge_emails').first()).recipient, 'pix@example.com');
+});
+
+function notificationDate(offset = 0) {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo' })
+    .format(new Date(Date.now() + offset * 86400000));
+}
+
+test('lembrete habilitado consulta o Mercado Pago, usa e-mail real e sai uma vez', async t => {
+  const f = await setup(t, { origin: 'https://pag.example.com',
+    bindings: { MERCADO_PAGO_PAYER_EMAIL_DOMAIN: 'mxsoft.com.br' }, expectedPayer: 'pix@mxsoft.com.br' });
+  await configure(f);
+  const settings = '/account/notifications';
+  assert.match((await f.agent.request(settings)).text, /Lembretes de vencimento/);
+  assert.equal((await post(f.agent, settings, settings, { before_due: 'on', confirmation: 'on' })).status, 303);
+  await createCharge(f, { due_date: notificationDate(3) });
+  const worker = await f.mf.getWorker();
+  const scheduledTime = Date.parse(notificationDate() + 'T11:00:00Z');
+  const run = () => worker.scheduled({ cron: '*/5 * * * *', scheduledTime });
+  await run();
+  await run();
+  const reminders = f.messages.filter(message => message.subject.includes('Lembrete'));
+  assert.equal(reminders.length, 1);
+  assert.deepEqual(reminders[0].to, ['pix@example.com']);
+  assert.equal(f.calls.filter(call => call.path === '/v1/orders/' + orderId).length, 1);
+});
+
+test('lembrete adia falha de consulta e é dispensado se o pagamento já entrou no Mercado Pago', async t => {
+  const f = await setup(t, { origin: 'https://pag.example.com' });
+  await configure(f);
+  const settings = '/account/notifications';
+  await post(f.agent, settings, settings, { before_due: 'on' });
+  await createCharge(f, { due_date: notificationDate(3) });
+  const worker = await f.mf.getWorker();
+  const scheduledTime = Date.parse(notificationDate() + 'T11:00:00Z');
+  const run = () => worker.scheduled({ cron: '*/5 * * * *', scheduledTime });
+  f.failRefresh(503);
+  await run();
+  const attempt = () => f.db.prepare(`SELECT e.status,a.result FROM charge_emails e JOIN charge_email_attempts a
+    ON a.email_id=e.id AND a.number=e.attempt_count WHERE e.purpose='before_due'`).first();
+  assert.deepEqual(await attempt(), { status: 'queued', result: 'mail_payment_check_failed' });
+
+  f.failRefresh(null);
+  f.approveOrder(new Date(Date.now() + 1000).toISOString());
+  await f.db.prepare("UPDATE charge_emails SET next_at=0 WHERE purpose='before_due'").run();
+  await run();
+  assert.deepEqual(await attempt(), { status: 'skipped', result: 'charge_unavailable' });
+  assert.equal((await f.db.prepare('SELECT status FROM charges').first()).status, 'paid');
+  assert.equal(f.messages.filter(message => /Lembrete|confirmado/.test(message.subject)).length, 0);
 });

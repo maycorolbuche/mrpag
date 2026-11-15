@@ -34,9 +34,12 @@ export async function recurringRoutes({ request, url, db, accountId, actorEmail,
   const today = businessDate(new Date());
   if (path === root && request.method === 'GET') {
     const offset = Math.max(0, Math.min(100000, ((parseInt(url.searchParams.get('page'), 10) || 1) - 1) * 25));
-    const { results } = await db.prepare(`SELECT r.*,u.name AS customer_name FROM charge_recurring_series r
+    const { results } = await db.prepare(`SELECT r.*,u.name AS customer_name,
+      EXISTS (SELECT 1 FROM charges c WHERE c.recurring_series_id=r.id AND c.provider_id IS NULL
+        AND c.status IN ('creating','creation_error') AND c.created_at<?) AS emission_review
+      FROM charge_recurring_series r
       JOIN customers u ON u.id=r.customer_id AND u.account_id=r.account_id WHERE r.account_id=?
-      ORDER BY r.status='ended',r.next_issue_date,r.id LIMIT 26 OFFSET ?`).bind(accountId, offset).all();
+      ORDER BY r.status='ended',r.next_issue_date,r.id LIMIT 26 OFFSET ?`).bind(Date.now() - maximumRetryAge, accountId, offset).all();
     return show('recurring-list', { seriesRows: results.slice(0, 25).map(decorate),
       chargePage: offset / 25 + 1, nextPage: results.length > 25 });
   }
@@ -63,7 +66,7 @@ export async function recurringRoutes({ request, url, db, accountId, actorEmail,
 
   const customers = creating ? (await db.prepare(`SELECT id,name FROM customers WHERE account_id=? AND active=1
     AND email<>'' AND document IS NOT NULL ORDER BY name,id`).bind(accountId).all()).results : [];
-  const cycles = row ? (await db.prepare(`SELECT id,due_date,status,amount_cents FROM charges
+  const cycles = row ? (await db.prepare(`SELECT id,due_date,status,amount_cents,provider_id,created_at FROM charges
     WHERE account_id=? AND recurring_series_id=? ORDER BY due_date DESC LIMIT 25`).bind(accountId,id).all()).results : [];
   const recurringWarning = row?.status === 'active' && !row.customer_ready
     ? 'A emissão fica aguardando um cadastro de cliente ativo com e-mail e CPF ou CNPJ.' : null;
@@ -72,6 +75,8 @@ export async function recurringRoutes({ request, url, db, accountId, actorEmail,
     : { request_id: crypto.randomUUID(), interval_months: 1, first_due: offsetDays(today, 5), lead_days: 5 };
   const render = (error = null, status = 200) => show('recurring-detail', {
     recurringSeries: row ? decorate(row) : null, recurringFields: fields, customers, cycles: cycles.map(cycle => ({ ...cycle,
+      needsReview: !cycle.provider_id && ['creating','creation_error'].includes(cycle.status) &&
+        cycle.created_at < Date.now() - maximumRetryAge,
       label: chargeLabels[cycle.status === 'pending' && cycle.due_date < today ? 'expired' : cycle.status] })),
     frequencies, error, today, recurringWarning,
     fmtDue: displayDueDate, fmtMoney: cents => chargeMoney.format(cents / 100),

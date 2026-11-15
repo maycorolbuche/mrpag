@@ -1,7 +1,7 @@
 <%- include('header', {title:'Minha conta'}) %>
-<span class="overline">CONFIGURAÇÕES</span><h1 class="workspace-title">Minha conta</h1><p class="text-secondary">O espaço que reúne seus clientes e, em breve, suas cobranças.</p>
+<span class="overline">CONFIGURAÇÕES</span><h1 class="workspace-title">Minha conta</h1><p class="text-secondary">Gerencie a identificação da conta e os avisos de cobrança.</p>
 <div class="settings-grid"><section class="settings-card"><h2>Identificação da conta</h2><p class="text-secondary">Este nome aparece no cabeçalho do sistema.</p>
 <% if(saved) { %><div class="alert alert-success" role="status">Conta atualizada.</div><% } %>
 <% if(error) { %><div class="alert alert-danger" role="alert"><%= error %></div><% } %>
 <form method="post" action="/account"><input type="hidden" name="_csrf" value="<%= csrf %>"><label for="name" class="form-label">Nome da conta</label><input class="form-control mb-4" id="name" name="name" value="<%= account.name %>" minlength="2" maxlength="120" required><button class="btn btn-primary" type="submit">Salvar alterações</button></form></section>
-<aside class="security-aside"><h3>Seus dados em um só lugar.</h3><p>Os clientes cadastrados pertencem à sua conta e ficam disponíveis apenas aos usuários vinculados a ela.</p><p>Usuário: <strong><%= user.name %></strong><br><%= user.email %></p><a href="/account/password">Gerenciar minha senha →</a></aside></div></main></body></html>
+<aside class="security-aside"><h3>Seus dados em um só lugar.</h3><p>Os clientes cadastrados pertencem à sua conta e ficam disponíveis apenas aos usuários vinculados a ela.</p><p>Usuário: <strong><%= user.name %></strong><br><%= user.email %></p><p><a href="/account/notifications">Configurar e-mails de cobrança →</a></p><a href="/account/password">Gerenciar minha senha →</a></aside></div></main></body></html>

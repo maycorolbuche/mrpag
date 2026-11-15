@@ -67,11 +67,11 @@
 </div>
 <% if (recurringSeries) { %>
   <section class="settings-card mt-3">
-    <h2>Cobranças emitidas</h2>
+    <h2>Ciclos de cobrança</h2>
     <% if (!cycles.length) { %><p>Nenhuma cobrança gerada.</p><% } else { %>
       <ul class="list-group list-group-flush">
         <% for (const cycle of cycles) { %>
-          <li class="list-group-item px-0"><a href="/charges/<%= cycle.id %>"><%= fmtDue(cycle.due_date) %></a> · <%= fmtMoney(cycle.amount_cents) %> · <%= cycle.label %></li>
+          <li class="list-group-item px-0"><a href="/charges/<%= cycle.id %>"><%= fmtDue(cycle.due_date) %></a> · <%= fmtMoney(cycle.amount_cents) %> · <%= cycle.label %><% if (cycle.needsReview) { %><br><span class="text-danger">Confira a emissão no Mercado Pago antes de criar outra cobrança.</span><% } %></li>
         <% } %>
       </ul>
     <% } %>

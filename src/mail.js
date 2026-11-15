@@ -29,7 +29,16 @@ export async function sendRecovery(env, { email, url }) {
   return sendEmail(env, { email, subject: 'Redefina sua senha — MR Pag', text });
 }
 
-export function sendChargeEmail(env, { email, bcc, url, amount, dueDate, idempotencyKey, beforeSmtpData }) {
-  const text = `Você recebeu uma cobrança Pix pelo MR Pag.\n\nValor: ${amount}\nVencimento: ${dueDate}\n\nAbra o link para pagar ou acompanhar a situação:\n${url}`;
-  return sendEmail(env, { email, bcc, subject: 'Cobrança Pix — MR Pag', text, idempotencyKey, beforeSmtpData });
+const chargeMessages = {
+  charge: ['Cobrança Pix', 'Você recebeu uma cobrança Pix pelo MR Pag.'],
+  before_due: ['Lembrete de vencimento', 'Sua cobrança Pix está próxima do vencimento.'],
+  due_today: ['Cobrança vence hoje', 'Sua cobrança Pix vence hoje.'],
+  overdue: ['Cobrança vencida', 'Sua cobrança passou do vencimento. Consulte a situação e fale com o recebedor se precisar de um novo Pix.'],
+  confirmation: ['Pagamento confirmado', 'Seu pagamento Pix foi confirmado.'],
+};
+
+export function sendChargeEmail(env, { email, bcc, url, amount, dueDate, purpose, idempotencyKey, beforeSmtpData }) {
+  const [subject, introduction] = chargeMessages[purpose];
+  const text = `${introduction}\n\nValor: ${amount}\nVencimento: ${dueDate}\n\nConsulte a cobrança:\n${url}`;
+  return sendEmail(env, { email, bcc, subject: `${subject} — MR Pag`, text, idempotencyKey, beforeSmtpData });
 }
