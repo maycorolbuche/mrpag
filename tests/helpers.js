@@ -29,7 +29,9 @@ export async function fixture({ serve = false, bindings = {}, failMail = false, 
   if (serve) {
     const probe = createServer(); probe.listen(0, '127.0.0.1'); await once(probe, 'listening');
     const port = probe.address().port; await new Promise(resolve => probe.close(resolve));
-    options.port = port; options.bindings.APP_URL = `http://127.0.0.1:${port}`;
+    options.port = port;
+    options.https = serve === 'https';
+    options.bindings.APP_URL = `${options.https ? 'https' : 'http'}://127.0.0.1:${port}`;
   }
   const mf = new Miniflare(options);
   try {
