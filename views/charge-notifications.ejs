@@ -1,0 +1,32 @@
+<%- include('header', {title:'E-mails de cobrança'}) %>
+<a class="back-link" href="/account">← Minha conta</a>
+<h1 class="workspace-title">E-mails de cobrança</h1>
+<section class="settings-card">
+  <% if (saved) { %><p class="alert alert-success" role="status">Preferências salvas.</p><% } %>
+  <form method="post" action="/account/notifications">
+    <input type="hidden" name="_csrf" value="<%= csrf %>">
+    <fieldset class="mb-4">
+      <legend>Lembretes de vencimento</legend>
+      <p class="text-secondary">Os avisos entram na fila a partir das 8h, no horário de Brasília.</p>
+      <% for (const [key, label] of [
+        ['before_due', 'Três dias antes do vencimento'],
+        ['due_today', 'No dia do vencimento'],
+        ['overdue', 'Três dias após o vencimento'],
+      ]) { %>
+        <label class="form-check mb-2">
+          <input type="checkbox" class="form-check-input" name="<%= key %>" <%= notifications[key] ? 'checked' : '' %>>
+          <span class="form-check-label"><%= label %></span>
+        </label>
+      <% } %>
+    </fieldset>
+    <fieldset class="mb-4">
+      <legend>Confirmação de pagamento</legend>
+      <label class="form-check">
+        <input type="checkbox" class="form-check-input" name="confirmation" <%= notifications.confirmation ? 'checked' : '' %>>
+        <span class="form-check-label">Enviar e-mail quando o pagamento for confirmado</span>
+      </label>
+    </fieldset>
+    <button class="btn btn-primary" type="submit">Salvar preferências</button>
+  </form>
+</section>
+</main></body></html>

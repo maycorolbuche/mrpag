@@ -85,3 +85,11 @@ O detalhe da série permite editar valor, descrição e antecedência para os pr
 No Worker de produção, em **Settings → Variables and Secrets**, adicione `MERCADO_PAGO_PAYER_EMAIL_DOMAIN` como **Text** se quiser substituir o domínio de `payer.email` nas próximas emissões. Informe somente o domínio, por exemplo `mxsoft.com.br`. O MR Pag mantém o e-mail real para seu envio automático. O reenvio manual usa o e-mail atual do cadastro.
 
 A regra vale para cobranças avulsas e recorrentes. Para desativar a troca, remova ou esvazie a variável e publique a configuração. Cobranças já criadas, inclusive as que aguardam uma nova tentativa de emissão, mantêm a solicitação original ao Mercado Pago.
+
+## Lembretes e confirmação de pagamento
+
+Abra **Minha conta → Configurar e-mails de cobrança**. Ative os lembretes que quiser usar. Os horários seguem Brasília. A fila recebe os avisos a partir das 8h, três dias antes do vencimento, no dia ou três dias depois, de acordo com as opções da conta. O aviso pós-vencimento orienta o cliente a consultar a situação e falar com o recebedor se precisar de um novo Pix.
+
+Antes de disparar um lembrete, o MR Pag consulta o Mercado Pago. Se a cobrança já estiver paga ou cancelada, a mensagem de cobrança é dispensada. Se a consulta falhar, o histórico registra a falha e agenda uma nova tentativa dentro da janela do aviso.
+
+A confirmação de pagamento vem ativada e pode ser desligada nessa mesma tela. O e-mail é enfileirado uma vez na transição para **Paga**, seja pelo webhook ou por **Consultar situação**. A publicação da migration não envia confirmações retroativas. Os lembretes e confirmações aparecem no histórico de e-mails da cobrança.

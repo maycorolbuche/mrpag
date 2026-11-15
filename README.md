@@ -99,4 +99,4 @@ A listagem tem busca por nome, nome fantasia, documento, e-mail ou telefone, fil
 
 O `account_id` vem do usuário autenticado, nunca de campos/IDs de conta enviados pelo navegador. Consultas de clientes incluem esse escopo, inclusive busca, contagem, detalhe, edição e situação. Sessões também ficam vinculadas à conta: uma mudança administrativa de vínculo invalida a sessão anterior. A troca obrigatória da senha inicial precede o acesso aos módulos.
 
-Esta etapa não cria tela pública de contas/usuários, integrações financeiras, cobranças ou envios de lembretes. A conta inicial é provisionada pelo seed. Novas contas/usuários ainda exigem provisionamento administrativo; a interface de gerenciamento poderá ser adicionada na sequência. As futuras tabelas de cobranças, recorrências e integrações devem manter o mesmo escopo por conta.
+A conta inicial é provisionada pelo seed. Novas contas e usuários são provisionados administrativamente. Clientes, cobranças Pix, recorrências, integrações e preferências de notificação são isolados por conta. Veja a [configuração de cobranças, pagamentos e notificações](docs/MERCADO-PAGO.md).

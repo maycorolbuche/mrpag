@@ -10,7 +10,7 @@ const retryDelays = [5, 30, 120].map(minutes => minutes * 60_000);
 const maxAge = 20 * 60 * 60_000;
 
 export async function chargeEmailHistory(db, chargeId) {
-  const { results } = await db.prepare(`SELECT e.kind,e.recipient,e.status,e.created_at,a.number,a.started_at,a.result
+  const { results } = await db.prepare(`SELECT e.kind,e.purpose,e.recipient,e.status,e.created_at,a.number,a.started_at,a.result
     FROM charge_emails e LEFT JOIN charge_email_attempts a ON a.email_id=e.id
     WHERE e.charge_id=? ORDER BY e.created_at DESC,e.id DESC,a.number DESC LIMIT 30`).bind(chargeId).all();
   return results;
@@ -24,7 +24,7 @@ export async function queueManualChargeEmail(db, charge, requestId, actorEmail) 
     WHERE c.id=? AND c.account_id=? AND u.email<>'' AND c.status='pending'
       AND c.due_date>=? AND c.provider_id IS NOT NULL AND c.public_token IS NOT NULL
       AND (c.pix_code IS NOT NULL OR c.pix_image IS NOT NULL)
-      AND NOT EXISTS (SELECT 1 FROM charge_emails e WHERE e.charge_id=c.id AND e.status IN ('queued','sending'))
+      AND NOT EXISTS (SELECT 1 FROM charge_emails e WHERE e.charge_id=c.id AND e.purpose='charge' AND e.status IN ('queued','sending'))
     ON CONFLICT(id) DO NOTHING`)
     .bind(`manual/${charge.id}/${requestId}`, actorEmail, now, now, charge.id, charge.account_id, businessDate(new Date(now))).run();
 }
@@ -41,7 +41,7 @@ async function finish(db, job, status, result, nextAt = 0) {
   ]);
 }
 
-async function deliver(env, origin, id) {
+async function deliver(env, origin, id, refreshPayment) {
   const db = env.DB;
   const now = Date.now();
   const job = await db.prepare(`UPDATE charge_emails SET status='sending',lease_until=?,attempt_count=attempt_count+1
@@ -58,11 +58,28 @@ async function deliver(env, origin, id) {
     return;
   }
 
-  const charge = await db.prepare('SELECT status,due_date,amount_cents,public_token,provider_id FROM charges WHERE id=?')
-    .bind(job.charge_id).first();
-  if (charge.status !== 'pending' || !charge.provider_id || charge.due_date < businessDate(new Date(now))) {
+  const readCharge = () => db.prepare(`SELECT id,account_id,integration_id,provider_api,provider_id,
+    status,due_date,amount_cents,public_token FROM charges WHERE id=?`).bind(job.charge_id).first();
+  let charge = await readCharge();
+  const reminder = job.purpose !== 'charge' && job.purpose !== 'confirmation';
+  const today = businessDate(new Date(now));
+  const eligible = (status = charge.status) => {
+    if (!charge.provider_id || !charge.public_token) return false;
+    if (job.purpose === 'confirmation') return status === 'paid';
+    if (job.purpose === 'overdue') return ['pending', 'expired'].includes(status) && charge.due_date < today;
+    return status === 'pending' && charge.due_date >= today;
+  };
+  if (!eligible() || (reminder && businessDate(new Date(job.created_at)) !== today)) {
     await finish(db, job, 'skipped', 'charge_unavailable');
     return;
+  }
+  if (job.purpose !== 'charge') {
+    const settings = await db.prepare('SELECT * FROM charge_notification_settings WHERE account_id=?')
+      .bind(charge.account_id).first();
+    if (!(settings?.[job.purpose] ?? (job.purpose === 'confirmation'))) {
+      await finish(db, job, 'skipped', 'notification_disabled');
+      return;
+    }
   }
   if (now - job.created_at >= maxAge || job.attempt_count > retryDelays.length + 1) {
     await finish(db, job, 'failed', 'retry_window_closed');
@@ -71,8 +88,21 @@ async function deliver(env, origin, id) {
 
   let result = 'sent';
   try {
+    if (reminder) {
+      let providerStatus;
+      try {
+        providerStatus = await refreshPayment(env, charge);
+        charge = await readCharge();
+      } catch {
+        throw new Error('mail_payment_check_failed');
+      }
+      if (!eligible(providerStatus) || !eligible()) {
+        await finish(db, job, 'skipped', 'charge_unavailable');
+        return;
+      }
+    }
     await sendChargeEmail(env, {
-      email: job.recipient, bcc: job.bcc, url: paymentLink(origin, charge.public_token),
+      email: job.recipient, bcc: job.bcc, purpose: job.purpose, url: paymentLink(origin, charge.public_token),
       amount: chargeMoney.format(charge.amount_cents / 100),
       dueDate: displayDueDate(charge.due_date), idempotencyKey: job.id,
       async beforeSmtpData() {
@@ -84,21 +114,21 @@ async function deliver(env, origin, id) {
       },
     });
   } catch (error) {
-    result = /^mail_(not_configured|invalid_recipient|http_\d{3}|smtp_([45]\d{2}|auth_unavailable|delivery_unknown))$/.test(error.message) ? error.message : 'mail_transport_error';
+    result = /^mail_(not_configured|payment_check_failed|invalid_recipient|http_\d{3}|smtp_([45]\d{2}|auth_unavailable|delivery_unknown))$/.test(error.message) ? error.message : 'mail_transport_error';
   }
   if (result === 'sent') {
     await finish(db, job, 'sent', result);
     return;
   }
   const delay = retryDelays[job.attempt_count - 1];
-  const transient = /^(mail_transport_error|mail_http_(409|429|5\d{2})|mail_smtp_4\d{2})$/.test(result);
+  const transient = /^(mail_transport_error|mail_payment_check_failed|mail_http_(409|429|5\d{2})|mail_smtp_4\d{2})$/.test(result);
   const retryAt = delay && transient ? Date.now() + delay : 0;
   await finish(db, job, retryAt ? 'queued' : 'failed', result, retryAt);
 }
 
-export async function dispatchChargeEmails(env, origin) {
+export async function dispatchChargeEmails(env, origin, refreshPayment) {
   const now = Date.now();
   const { results } = await env.DB.prepare(`SELECT id FROM charge_emails WHERE status IN ('queued','sending')
     AND next_at<=? AND lease_until<=? ORDER BY next_at,id LIMIT 10`).bind(now, now).all();
-  await Promise.all(results.map(({ id }) => deliver(env, origin, id)));
+  await Promise.all(results.map(({ id }) => deliver(env, origin, id, refreshPayment)));
 }
