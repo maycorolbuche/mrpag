@@ -1,0 +1,44 @@
+<%- include('header', {title:'Nova cobrança'}) %>
+<a class="back-link" href="/charges">← Cobranças</a>
+<h1 class="workspace-title">Nova cobrança Pix</h1>
+<section class="settings-card">
+  <% if (error) { %><div class="alert alert-danger" role="alert"><%= error %></div><% } %>
+  <% if (!integration) { %>
+    <p>Conecte sua conta do Mercado Pago para emitir cobranças.</p>
+    <a class="btn btn-primary" href="/account/payments">Configurar Mercado Pago</a>
+  <% } else if (!customers.length) { %>
+    <p>Cadastre um cliente ativo com e-mail e CPF ou CNPJ para emitir o Pix.</p>
+    <a class="btn btn-primary" href="/customers">Clientes</a>
+  <% } else { %>
+    <form method="post" action="/charges">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
+      <input type="hidden" name="request_id" value="<%= chargeFields.request_id %>">
+      <div class="mb-3">
+        <label for="customer_id" class="form-label">Cliente</label>
+        <select id="customer_id" name="customer_id" class="form-select" required>
+          <option value="">Selecione</option>
+          <% for (const customer of customers) { %>
+            <option value="<%= customer.id %>" <%= String(customer.id) === chargeFields.customer_id ? 'selected' : '' %>><%= customer.name %></option>
+          <% } %>
+        </select>
+      </div>
+      <div class="mb-3">
+        <label for="description" class="form-label">Descrição</label>
+        <input id="description" name="description" class="form-control" value="<%= chargeFields.description || '' %>" maxlength="150" required>
+      </div>
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label for="amount" class="form-label">Valor em reais</label>
+          <input id="amount" name="amount" class="form-control" inputmode="decimal" value="<%= chargeFields.amount || '' %>" placeholder="100,00" maxlength="10" required>
+        </div>
+        <div class="col-md-6 mb-3">
+          <label for="due_date" class="form-label">Vencimento</label>
+          <input id="due_date" name="due_date" class="form-control" type="date" value="<%= chargeFields.due_date || '' %>" required>
+          <div class="form-text">Até o fim do dia no horário de Brasília, dentro dos próximos 30 dias.</div>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Gerar Pix</button>
+    </form>
+  <% } %>
+</section>
+</main></body></html>
