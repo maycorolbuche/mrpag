@@ -69,3 +69,5 @@ Novas cobranças com Pix disponível entram na fila de e-mail automaticamente. O
 Na tela da cobrança, copie o **Link de pagamento** ou use **Enviar por e-mail**. O link pode ser aberto sem login e mostra a situação da cobrança. Após a baixa, o cliente pode atualizar a página para ver **Paga**. Cobranças antigas já emitidas ficam disponíveis para compartilhamento e envio manual. A atualização do Worker não dispara e-mails retroativos.
 
 O histórico mostra o destinatário, cada tentativa e a resposta do serviço. **Aceito pelo serviço de e-mail** indica aceitação pelo Resend. Falhas temporárias são repetidas automaticamente. Se houver uma falha definitiva, corrija a causa e use **Enviar novamente por e-mail**.
+
+Cada e-mail de cobrança inclui uma cópia oculta para o usuário que emitiu o Pix ou solicitou o reenvio. O MR Pag registra esse endereço ao agendar o e-mail, para que o envio automático e as novas tentativas usem o mesmo destinatário.

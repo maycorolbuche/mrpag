@@ -164,7 +164,7 @@ async function handle(request, env) {
     return redirect('/account?saved=1');
   }
   if (isPaymentRoute) {
-    const result = await paymentRoutes({ request, url, db, env, accountId: user.account_id, origin: config.origin, sessionHash, body, show, redirect });
+    const result = await paymentRoutes({ request, url, db, env, accountId: user.account_id, actorEmail: user.email, origin: config.origin, sessionHash, body, show, redirect });
     if (result) return result;
   }
   if (path === '/customers' || path.startsWith('/customers/')) {
