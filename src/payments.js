@@ -225,15 +225,21 @@ export async function issue({ db, env }, charge) {
   }
 }
 
-export function insertPixCharge(db, { id, accountId, integrationId, customer, description, cents, dueDate, actorEmail, series }) {
+export function insertPixCharge(db, env, { id, accountId, integrationId, customer, description, cents, dueDate, actorEmail, series }) {
   const now = Date.now();
+  const domain = (env.MERCADO_PAGO_PAYER_EMAIL_DOMAIN || '').trim().toLowerCase();
+  if (domain && (domain.length > 253 ||
+      !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(domain))) {
+    throw new Error('MERCADO_PAGO_PAYER_EMAIL_DOMAIN deve conter apenas um domínio válido.');
+  }
+  const payerEmail = domain ? customer.email.slice(0, customer.email.lastIndexOf('@') + 1) + domain : customer.email;
   const payload = pixOrderPayload({
     id, description, cents, dueDate, now,
-    payer: { email: customer.email, identification: { type: customer.document.length === 11 ? 'CPF' : 'CNPJ', number: customer.document } },
+    payer: { email: payerEmail, identification: { type: customer.document.length === 11 ? 'CPF' : 'CNPJ', number: customer.document } },
   });
-  const values = "?,?,?,?,?,?,?,?,?,'orders',?,1,?,?";
+  const values = "?,?,?,?,?,?,?,?,?,'orders',?,1,?,?,?";
   const args = [id, accountId, customer.id, integrationId, description, cents, dueDate, JSON.stringify(payload), now,
-    token(), actorEmail, series?.id ?? null];
+    token(), actorEmail, series?.id ?? null, customer.email];
   const source = series
     ? `SELECT ${values} FROM charge_recurring_series r JOIN customers u ON u.id=r.customer_id AND u.account_id=r.account_id
       WHERE r.id=? AND r.account_id=? AND r.revision=? AND r.status='active'
@@ -241,7 +247,7 @@ export function insertPixCharge(db, { id, accountId, integrationId, customer, de
     : `VALUES (${values})`;
   if (series) args.push(series.id, accountId, series.revision, series.next_due_date, customer.email, customer.document);
   return db.prepare(`INSERT INTO charges(id,account_id,customer_id,integration_id,
-    description,amount_cents,due_date,provider_payload,created_at,provider_api,public_token,auto_email,issuer_email,recurring_series_id)
+    description,amount_cents,due_date,provider_payload,created_at,provider_api,public_token,auto_email,issuer_email,recurring_series_id,notification_email)
     ${source} ON CONFLICT DO NOTHING RETURNING *`).bind(...args);
 }
 
@@ -287,7 +293,7 @@ export async function paymentRoutes(context) {
     if (!customer?.email || !/^\d{11}$|^\d{14}$/.test(customer.document || '')) {
       return render('Selecione um cliente ativo com e-mail e CPF ou CNPJ cadastrados.', 422);
     }
-    const created = await insertPixCharge(db, {
+    const created = await insertPixCharge(db, env, {
       id: fields.request_id, accountId, integrationId: integration.id, customer, description, cents,
       dueDate: fields.due_date, actorEmail,
     }).first();

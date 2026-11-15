@@ -9,7 +9,7 @@ const integrationId = crypto.randomUUID();
 const chargeId = crypto.randomUUID();
 const orderId = 'ORD01HRYFWNYRE1MR1E60MW3X0T2P';
 
-async function setup(t, { origin, mailApi, bindings = {} } = {}) {
+async function setup(t, { origin, mailApi, bindings = {}, expectedPayer = 'pix@example.com' } = {}) {
   const calls = [];
   let payment;
   let failureStatus;
@@ -48,6 +48,7 @@ async function setup(t, { origin, mailApi, bindings = {} } = {}) {
           assert.equal(payload.processing_mode, 'automatic');
           assert.equal(payload.total_amount, '49.90');
           assert.equal(payload.notification_url, undefined);
+          assert.equal(payload.payer.email, expectedPayer);
           const pix = payload.transactions.payments[0];
           assert.equal(pix.amount, payload.total_amount);
           assert.match(pix.expiration_time, /^P\d+DT\d+H\d+M\d+S$/);
@@ -372,7 +373,8 @@ test('cancelamento de cobrança legada usa a API Payments', async t => {
 });
 
 test('recorrência gera uma cobrança por ciclo, reutiliza e-mail e permite editar, pausar e encerrar', async t => {
-  const f = await setup(t, { origin: 'https://pag.example.com' });
+  const f = await setup(t, { origin: 'https://pag.example.com',
+    bindings: { MERCADO_PAGO_PAYER_EMAIL_DOMAIN: 'mxsoft.com.br' }, expectedPayer: 'pix@mxsoft.com.br' });
   await configure(f);
   const root = '/charges/recurring';
   const id = crypto.randomUUID();
@@ -399,6 +401,7 @@ test('recorrência gera uma cobrança por ciclo, reutiliza e-mail e permite edit
   assert.ok(f.calls.filter(call => call.key).every(call => call.key === charge.id));
   assert.equal(f.messages.length, 1);
   assert.deepEqual(f.messages[0].bcc, ['admin@mrpag.local']);
+  assert.deepEqual(f.messages[0].to, ['pix@example.com']);
   assert.match((await f.agent.request(path)).text, new RegExp('/charges/' + charge.id));
   assert.match((await f.agent.request('/charges/' + charge.id)).text, /Ver série/);
   const expected = new Date(due + 'T12:00:00Z');
@@ -449,4 +452,32 @@ test('recorrências aceitam os quatro intervalos e preservam a referência ao aj
   const actual = await f.db.prepare('SELECT next_due_date FROM charge_recurring_series WHERE id=?').bind(ids[3]).first();
   const days = [(await f.db.prepare('SELECT due_date FROM charges WHERE recurring_series_id=?').bind(ids[3]).first())?.due_date, actual.next_due_date];
   assert.ok(days.includes(expected) || (today >= expected && days.includes(`${targetYear + 1}-02-${new Date(Date.UTC(targetYear + 1,2,0)).getUTCDate()}`)));
+});
+
+test('domínio opcional muda somente o e-mail do Mercado Pago na cobrança avulsa e no retry', async t => {
+  const f = await setup(t, { origin: 'https://pag.example.com',
+    bindings: { MERCADO_PAGO_PAYER_EMAIL_DOMAIN: ' MXSoft.com.br ' }, expectedPayer: 'pix@mxsoft.com.br' });
+  await configure(f);
+  f.failFirst(503);
+  await createCharge(f);
+  const path = `/charges/${chargeId}`;
+  assert.equal((await post(f.agent, path, path + '/retry', {})).status, 303);
+  const charge = await f.db.prepare('SELECT provider_payload, notification_email, status FROM charges').first();
+  assert.equal(charge.status, 'pending');
+  assert.equal(JSON.parse(charge.provider_payload).payer.email, 'pix@mxsoft.com.br');
+  assert.equal(charge.notification_email, 'pix@example.com');
+  const worker = await f.mf.getWorker();
+  await worker.scheduled({ cron: '*/5 * * * *' });
+  assert.deepEqual(f.messages[0].to, ['pix@example.com']);
+});
+
+test('domínio em branco mantém o endereço real e o gatilho antigo continua compatível', async t => {
+  const f = await setup(t, { bindings: { MERCADO_PAGO_PAYER_EMAIL_DOMAIN: '  ' } });
+  await configure(f);
+  f.failFirst(503);
+  await createCharge(f);
+  await f.db.prepare('UPDATE charges SET notification_email=NULL').run();
+  const path = `/charges/${chargeId}`;
+  await post(f.agent, path, path + '/retry', {});
+  assert.equal((await f.db.prepare('SELECT recipient FROM charge_emails').first()).recipient, 'pix@example.com');
 });

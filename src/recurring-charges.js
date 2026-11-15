@@ -132,7 +132,7 @@ async function scheduleCycle(env, series, today) {
   const integration = await currentIntegration(db, series.account_id);
   if (!integration) return;
   const customer = { id: series.customer_id, email: series.customer_email, document: series.customer_document };
-  const insert = insertPixCharge(db, { id: crypto.randomUUID(), accountId: series.account_id, integrationId: integration.id,
+  const insert = insertPixCharge(db, env, { id: crypto.randomUUID(), accountId: series.account_id, integrationId: integration.id,
     customer, description: series.description, cents: series.amount_cents, dueDate: due, actorEmail: series.issuer_email, series });
   await db.batch([insert, advance(next, true)]);
 }
