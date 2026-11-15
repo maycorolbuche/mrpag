@@ -156,24 +156,21 @@ Migrations aplicadas não rodam novamente. O comando publica código/assets, pre
 
 Se quiser usar seu domínio, adicione um **Custom Domain** ao Worker, atualize `APP_URL` e publique novamente. Mantenha a URL no `wrangler.jsonc` como fonte da configuração.
 
-## 8. Conectar GitHub para deploy automático (opcional)
+## 8. Deploy automático pelo GitHub Actions
 
-Primeiro valide o deploy manual. Depois, no Worker `mrpag`, acesse **Settings → Builds**, conecte o repositório `maycorolbuche/mrpag` e escolha `main` como branch de produção. Dependendo do painel, essa opção pode aparecer como **Connect Git**.
+Em **Settings → Secrets and variables → Actions** do repositório, configure:
 
-Use:
+| Tipo | Nome | Valor |
+|---|---|---|
+| Secret | `CLOUDFLARE_API_TOKEN` | Token da conta Cloudflare com **Workers Scripts: Edit** e **D1: Edit** |
+| Variable | `CLOUDFLARE_ACCOUNT_ID` | ID da conta Cloudflare |
+| Variable | `CLOUDFLARE_D1_DATABASE_ID` | UUID do D1 **mrpag-db** de produção |
+| Variable | `CLOUDFLARE_APP_URL` | Origem HTTPS do MR Pag, por exemplo `https://mrpag.mxsoft.com.br` |
 
-| Configuração | Valor |
-|---|---|
-| Diretório raiz | raiz do repositório |
-| Build command | `npm run build` |
-| Deploy command | `npm run deploy` |
-| Node | `24` (`NODE_VERSION=24` no ambiente de build, se necessário) |
+Depois que um push chegar à `main`, o workflow executa os testes, aplica as migrations pendentes no D1 e publica o Worker. A etapa de deploy usa uma cópia temporária da configuração com a URL e o banco de produção. Mantenha as variáveis de e-mail e os secrets da aplicação, como `PASSWORD_PEPPER` e `PAYMENT_INTEGRATION_KEY`, no Worker.
 
-O build instala dependências; o comando de deploy aplica migrations antes de publicar. O Wrangler também chama o build configurado no arquivo, então poderá aparecer duas vezes no log; isso é idempotente. Não use `npx wrangler deploy` sozinho se quiser garantir migrations em cada deploy.
+Acompanhe em **GitHub → Actions → Worker e autenticação → Deploy Cloudflare**. Se o primeiro deploy falhar por falta de configuração, salve os valores acima e use **Re-run failed jobs** no GitHub. Use o GitHub Actions como origem das publicações automáticas.
 
-Garanta que a identidade/token de build tenha permissão de editar o Worker e o D1 da conta. As variáveis de build e os secrets de execução do Worker são configurações distintas: mantenha `PASSWORD_PEPPER` e `RESEND_API_KEY` nos secrets do Worker. O build não precisa das senhas dos usuários nem do pepper.
-
-Para essa avaliação, não conecte deploys de branches de preview ao banco de produção. Se habilitar preview futuramente, configure banco, URL e secrets separados. O arquivo atual define apenas a implantação principal.
 
 ## 9. Logs e diagnóstico
 

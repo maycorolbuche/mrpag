@@ -16,3 +16,4 @@ test-results/
 .worker-check/
 dist/
 src/generated/
+wrangler.production.generated.json
