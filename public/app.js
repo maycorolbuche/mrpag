@@ -8,8 +8,8 @@ document.querySelectorAll('[data-toggle-password]').forEach(button => {
     button.setAttribute('aria-label', visible ? 'Ocultar senha' : 'Mostrar senha');
   });
 });
-document.querySelectorAll('form').forEach(form => form.addEventListener('submit', () => {
-  const button = form.querySelector('[type="submit"]');
+document.querySelectorAll('form').forEach(form => form.addEventListener('submit', event => {
+  const button = event.submitter || form.querySelector('[type="submit"]');
   if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); button.textContent = 'Aguarde…'; }
 }));
 

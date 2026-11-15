@@ -44,7 +44,8 @@ async function finish(db, job, status, result, nextAt = 0) {
 async function deliver(env, origin, id, refreshPayment) {
   const db = env.DB;
   const now = Date.now();
-  const job = await db.prepare(`UPDATE charge_emails SET status='sending',lease_until=?,attempt_count=attempt_count+1
+  const job = await db.prepare(`UPDATE charge_emails SET status='sending',lease_until=?,
+    layout_version=CASE WHEN attempt_count=0 THEN 1 ELSE layout_version END,attempt_count=attempt_count+1
     WHERE id=? AND status IN ('queued','sending') AND next_at<=? AND lease_until<=?
     AND NOT EXISTS (SELECT 1 FROM charge_email_attempts a WHERE a.email_id=charge_emails.id
       AND a.number=charge_emails.attempt_count AND a.result='smtp_data_started')
@@ -102,7 +103,7 @@ async function deliver(env, origin, id, refreshPayment) {
       }
     }
     await sendChargeEmail(env, {
-      email: job.recipient, bcc: job.bcc, purpose: job.purpose, url: paymentLink(origin, charge.public_token),
+      email: job.recipient, bcc: job.bcc, purpose: job.purpose, layoutVersion: job.layout_version, url: paymentLink(origin, charge.public_token),
       amount: chargeMoney.format(charge.amount_cents / 100),
       dueDate: displayDueDate(charge.due_date), idempotencyKey: job.id,
       async beforeSmtpData() {

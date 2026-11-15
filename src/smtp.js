@@ -72,14 +72,25 @@ async function authenticate(connection, capabilities, user, password) {
   await connection.reply(235);
 }
 
-function messageData(sender, from, { email, subject, text, idempotencyKey }) {
+function mimePart(type, content) {
+  return [
+    `Content-Type: ${type}; charset=UTF-8`, 'Content-Transfer-Encoding: base64', '',
+    ...(utf8Base64(content.replace(/\r?\n/g, '\r\n')).match(/.{1,76}/g) || []),
+  ];
+}
+
+function messageData(sender, from, { email, subject, text, html, idempotencyKey }) {
   const id = idempotencyKey?.replace(/[^a-z0-9-]/gi, '.') || crypto.randomUUID();
+  const boundary = `mrpag-${crypto.randomUUID()}`;
+  const parts = html ? [
+    `Content-Type: multipart/alternative; boundary="${boundary}"`, '',
+    `--${boundary}`, ...mimePart('text/plain', text),
+    `--${boundary}`, ...mimePart('text/html', html), `--${boundary}--`,
+  ] : mimePart('text/plain', text);
   return [
     `From: ${sender}`, `To: <${email}>`, `Subject: =?UTF-8?B?${utf8Base64(subject)}?=`,
     `Date: ${new Date().toUTCString()}`, `Message-ID: <${id}@${from.split('@')[1]}>`,
-    'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8',
-    'Content-Transfer-Encoding: base64', '',
-    ...(utf8Base64(text.replace(/\r?\n/g, '\r\n')).match(/.{1,76}/g) || []), '.',
+    'MIME-Version: 1.0', ...parts, '.',
   ].join('\r\n');
 }
 

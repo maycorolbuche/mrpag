@@ -1,0 +1,1 @@
+ALTER TABLE charge_emails ADD COLUMN layout_version INTEGER NOT NULL DEFAULT 0;

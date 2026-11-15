@@ -547,3 +547,43 @@ test('lembrete adia falha de consulta e é dispensado se o pagamento já entrou 
   assert.equal((await f.db.prepare('SELECT status FROM charges').first()).status, 'paid');
   assert.equal(f.messages.filter(message => /Lembrete|confirmado/.test(message.subject)).length, 0);
 });
+
+test('modelos de teste são enviados apenas ao usuário autenticado sem gravar cobranças, fila ou preferências', async t => {
+  const f = await setup(t);
+  const path = '/account/notifications';
+  const models = ['charge','before_due','due_today','overdue','confirmation'];
+  const outsider = agent(f.mf);
+  assert.equal((await outsider.request(path)).headers.get('location'), '/login');
+  for (const model of models) {
+    const preview = await post(f.agent, path, path + '?preview=' + model, {
+      email: 'forged@example.com', before_due: 'on',
+    });
+    assert.equal(preview.headers.get('location'), path + '?test=sent');
+  }
+  assert.equal((await post(f.agent, path, path + '?preview=unknown', {})).status, 400);
+  assert.equal(f.messages.length, models.length);
+  assert.equal(new Set(f.messages.map(message => message.subject)).size, models.length);
+  for (const message of f.messages) {
+    assert.deepEqual(message.to, ['admin@mrpag.local']);
+    assert.match(message.subject, /^\[Teste\]/);
+    assert.match(message.html, /E-mail de teste/);
+    assert.doesNotMatch(message.html, /href=/);
+    assert.match(message.text, /dados fictícios/);
+  }
+  for (const table of ['charges','charge_emails','charge_notification_settings']) {
+    assert.equal((await f.db.prepare(`SELECT count(*) AS total FROM ${table}`).first()).total, 0);
+  }
+});
+
+test('nova tentativa enfileirada antes da atualização preserva o corpo original do Resend', async t => {
+  const f = await setup(t, { origin: 'https://pag.example.com' });
+  await configure(f);
+  await createCharge(f);
+  await f.db.prepare('UPDATE charge_emails SET attempt_count=1,layout_version=0,next_at=0').run();
+  const worker = await f.mf.getWorker();
+  await worker.scheduled({ cron: '*/5 * * * *' });
+  assert.equal(f.messages.length, 1);
+  assert.equal(f.messages[0].html, undefined);
+  assert.match(f.messages[0].text, /^Você recebeu uma cobrança Pix pelo MR Pag\./);
+  assert.match(f.messages[0].text, /Consulte a cobrança:\nhttps:/);
+});

@@ -93,3 +93,5 @@ Abra **Minha conta → Configurar e-mails de cobrança**. Ative os lembretes que
 Antes de disparar um lembrete, o MR Pag consulta o Mercado Pago. Se a cobrança já estiver paga ou cancelada, a mensagem de cobrança é dispensada. Se a consulta falhar, o histórico registra a falha e agenda uma nova tentativa dentro da janela do aviso.
 
 A confirmação de pagamento vem ativada e pode ser desligada nessa mesma tela. O e-mail é enfileirado uma vez na transição para **Paga**, seja pelo webhook ou por **Consultar situação**. A publicação da migration não envia confirmações retroativas. Os lembretes e confirmações aparecem no histórico de e-mails da cobrança.
+
+Em **Minha conta → Configurar e-mails de cobrança**, use **Enviar teste** ao lado de cada modelo para recebê-lo no e-mail do usuário autenticado. As amostras usam valores e datas fictícios e indicam que são testes. O botão da amostra é ilustrativo. O envio de teste não cria cobranças nem salva preferências.

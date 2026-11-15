@@ -58,3 +58,15 @@ test('SMTP impede injeção de comandos por destinatário', async () => {
   await assert.rejects(sendSmtp(env, { ...message, email: 'test@example.com\r\nDATA' },
     () => assert.fail('socket should not be opened')), { message: 'mail_invalid_recipient' });
 });
+
+test('SMTP monta HTML e texto em partes alternativas na mesma mensagem', async () => {
+  const server = smtpServer(['250 AUTH PLAIN\r\n', '235 ok\r\n', '250 ok\r\n', '250 ok\r\n',
+    '250 ok\r\n', '354 continue\r\n', '250 accepted\r\n']);
+  await sendSmtp(env, { ...message, html: '<h1>Olá!</h1>' }, server.connect);
+  const data = server.writes.at(-1);
+  const boundary = data.match(/Content-Type: multipart\/alternative; boundary="([^"]+)"/)[1];
+  const [, plain, html] = data.split('--' + boundary);
+  assert.match(plain, /Content-Type: text\/plain; charset=UTF-8/);
+  assert.match(html, /Content-Type: text\/html; charset=UTF-8/);
+  assert.equal(Buffer.from(html.split('\r\n\r\n')[1].trim(), 'base64').toString(), '<h1>Olá!</h1>');
+});
