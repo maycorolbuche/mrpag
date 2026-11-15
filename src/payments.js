@@ -211,7 +211,7 @@ export async function publicPayment(db, publicToken) {
 }
 
 export async function paymentRoutes(context) {
-  const { request, url, db, env, accountId, origin, body, show, redirect } = context;
+  const { request, url, db, env, accountId, actorEmail, origin, body, show, redirect } = context;
   if (url.pathname === oauthConnect && request.method === 'POST') return startMercadoPagoOAuth(context);
   if (url.pathname === oauthCallback && request.method === 'GET') return finishMercadoPagoOAuth(context);
   if (url.pathname === '/account/payments') return integrationSettings(context);
@@ -250,10 +250,10 @@ export async function paymentRoutes(context) {
       payer: { email: customer.email, identification: { type: customer.document.length === 11 ? 'CPF' : 'CNPJ', number: customer.document } },
     });
     const created = await db.prepare(`INSERT INTO charges(id,account_id,customer_id,integration_id,
-      description,amount_cents,due_date,provider_payload,created_at,provider_api,public_token,auto_email)
-      VALUES (?,?,?,?,?,?,?,?,?,'orders',?,1)
+      description,amount_cents,due_date,provider_payload,created_at,provider_api,public_token,auto_email,issuer_email)
+      VALUES (?,?,?,?,?,?,?,?,?,'orders',?,1,?)
       ON CONFLICT(id) DO NOTHING RETURNING *`)
-      .bind(fields.request_id, accountId, customer.id, integration.id, description, cents, fields.due_date, JSON.stringify(payload), now, token()).first();
+      .bind(fields.request_id, accountId, customer.id, integration.id, description, cents, fields.due_date, JSON.stringify(payload), now, token(), actorEmail).first();
     if (!created) return redirect(`${route}/${fields.request_id}`);
     await issue(context, created);
     return redirect(`${route}/${created.id}`);
@@ -279,7 +279,7 @@ export async function paymentRoutes(context) {
   if (request.method !== 'POST' || !action) return null;
   if (action === 'retry') await issue(context, charge);
   if (action === 'email' && uuid.test(body.mail_request_id || '')) {
-    await queueManualChargeEmail(db, charge, body.mail_request_id);
+    await queueManualChargeEmail(db, charge, body.mail_request_id, actorEmail);
   }
   if (action === 'refresh' && charge.provider_id) {
     try {

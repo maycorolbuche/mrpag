@@ -206,12 +206,15 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   });
   await configure(f);
   await Promise.all([createCharge(f), createCharge(f)]);
+  // The cron has no session and must use the address captured at issuance.
+  await f.db.prepare("UPDATE users SET email='operator@example.com' WHERE id=1").run();
   const worker = await f.mf.getWorker();
   const run = () => worker.scheduled({ cron: '*/5 * * * *' });
   await Promise.all([run(), run()]);
   assert.equal(f.messages.length, 1);
   assert.equal(keys[0], 'initial/' + chargeId);
   assert.deepEqual(f.messages[0].to, ['pix@example.com']);
+  assert.deepEqual(f.messages[0].bcc, ['admin@mrpag.local']);
   const url = new URL(f.messages[0].text.match(/https:\/\/[^\s]+/)[0]);
   assert.equal(url.origin, origin);
   assert.match(url.pathname, /^\/pay\/[a-f0-9]{64}$/);
@@ -237,6 +240,7 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   assert.equal(f.messages.length, 2);
   assert.match(keys[1], /^manual\//);
   assert.ok(f.messages[1].text.includes(url.href));
+  assert.deepEqual(f.messages[1].bcc, ['operator@example.com']);
 
   f.approveOrder(new Date(Date.now() + 1000).toISOString());
   assert.equal((await webhook(f)).status, 200);

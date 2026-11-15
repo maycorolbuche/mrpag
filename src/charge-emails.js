@@ -16,17 +16,17 @@ export async function chargeEmailHistory(db, chargeId) {
   return results;
 }
 
-export async function queueManualChargeEmail(db, charge, requestId) {
+export async function queueManualChargeEmail(db, charge, requestId, actorEmail) {
   const now = Date.now();
-  await db.prepare(`INSERT INTO charge_emails(id,charge_id,recipient,kind,created_at,next_at)
-    SELECT ?,c.id,u.email,'manual',?,? FROM charges c
+  await db.prepare(`INSERT INTO charge_emails(id,charge_id,recipient,bcc,kind,created_at,next_at)
+    SELECT ?,c.id,u.email,?,'manual',?,? FROM charges c
     JOIN customers u ON u.id=c.customer_id AND u.account_id=c.account_id
     WHERE c.id=? AND c.account_id=? AND u.email<>'' AND c.status='pending'
       AND c.due_date>=? AND c.provider_id IS NOT NULL AND c.public_token IS NOT NULL
       AND (c.pix_code IS NOT NULL OR c.pix_image IS NOT NULL)
       AND NOT EXISTS (SELECT 1 FROM charge_emails e WHERE e.charge_id=c.id AND e.status IN ('queued','sending'))
     ON CONFLICT(id) DO NOTHING`)
-    .bind(`manual/${charge.id}/${requestId}`, now, now, charge.id, charge.account_id, businessDate(new Date(now))).run();
+    .bind(`manual/${charge.id}/${requestId}`, actorEmail, now, now, charge.id, charge.account_id, businessDate(new Date(now))).run();
 }
 
 async function finish(db, job, status, result, nextAt = 0) {
@@ -63,7 +63,7 @@ async function deliver(env, origin, id) {
   let result = 'sent';
   try {
     await sendChargeEmail(env, {
-      email: job.recipient, url: paymentLink(origin, charge.public_token),
+      email: job.recipient, bcc: job.bcc, url: paymentLink(origin, charge.public_token),
       amount: chargeMoney.format(charge.amount_cents / 100),
       dueDate: displayDueDate(charge.due_date), idempotencyKey: job.id,
     });
