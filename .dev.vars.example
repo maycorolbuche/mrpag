@@ -9,3 +9,9 @@ SEED_PASSWORD="MrPag@2026!Inicial"
 # Para testar envio real localmente, use MAIL_MODE=resend e preencha:
 # RESEND_API_KEY=re_...
 # MAIL_FROM=MR Pag <acesso@seu-dominio.com.br>
+
+# Preencha apenas durante a criação do primeiro administrador remoto.
+# Remova estes valores do arquivo após o comando npm run db:seed:remote.
+# REMOTE_PASSWORD_PEPPER=mesmo-secret-PASSWORD_PEPPER-do-Worker
+# REMOTE_SEED_EMAIL=seu-email@dominio.com.br
+# REMOTE_SEED_PASSWORD="Senha inicial com pelo menos 12 caracteres"

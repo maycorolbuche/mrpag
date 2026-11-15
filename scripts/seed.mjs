@@ -4,11 +4,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 const remote = process.argv.includes('--remote');
-const email = (process.env.SEED_EMAIL ?? (remote ? '' : 'admin@mrpag.local')).trim().toLowerCase();
-const password = process.env.SEED_PASSWORD ?? (remote ? '' : 'MrPag@2026!Inicial');
-if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || passwordError(password, password)) throw new Error('Defina SEED_EMAIL e SEED_PASSWORD (12 a 128 caracteres).');
-if (remote && (password === 'MrPag@2026!Inicial' || email.endsWith('.local'))) throw new Error('No remoto, use e-mail real e senha própria.');
-const hash = await hashPassword(password, process.env.PASSWORD_PEPPER);
+const emailKey = remote ? 'REMOTE_SEED_EMAIL' : 'SEED_EMAIL';
+const passwordKey = remote ? 'REMOTE_SEED_PASSWORD' : 'SEED_PASSWORD';
+const pepperKey = remote ? 'REMOTE_PASSWORD_PEPPER' : 'PASSWORD_PEPPER';
+const defaultPassword = 'MrPag@2026!Inicial';
+const email = (process.env[emailKey] ?? (remote ? '' : 'admin@mrpag.local')).trim().toLowerCase();
+const password = process.env[passwordKey] ?? (remote ? '' : defaultPassword);
+const pepper = process.env[pepperKey];
+if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || passwordError(password, password)) {
+  throw new Error(`Defina ${emailKey} e ${passwordKey} (12 a 128 caracteres).`);
+}
+if (remote && (password === defaultPassword || email.endsWith('.local'))) {
+  throw new Error('No remoto, use e-mail real e senha própria.');
+}
+if (!pepper || pepper.length < 32) {
+  throw new Error(`Defina ${pepperKey} com pelo menos 32 caracteres.`);
+}
+const hash = await hashPassword(password, pepper);
 const sqlString = value => `'${value.replaceAll("'", "''")}'`;
 // Bootstrap only an empty database. The same guard covers the account and user.
 const now = Date.now();

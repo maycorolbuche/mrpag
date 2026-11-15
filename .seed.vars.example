@@ -1,5 +1,0 @@
-# Copie para .seed.vars SOMENTE para criar o administrador remoto.
-# PASSWORD_PEPPER deve ser o mesmo secret configurado no Worker.
-PASSWORD_PEPPER=
-SEED_EMAIL=
-SEED_PASSWORD=
