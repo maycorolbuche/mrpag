@@ -6,6 +6,7 @@
   <title>Cobrança Pix · MR Pag</title>
   <link rel="stylesheet" href="/assets/bootstrap/bootstrap.min.css">
   <link rel="stylesheet" href="/assets/app.css">
+  <% if (charge?.status === 'pending') { %><script src="/assets/payment-status.js" defer></script><% } %>
 </head>
 <body class="workspace-body">
 <main class="workspace-main">
@@ -20,7 +21,7 @@
           <div><dt>Situação</dt><dd><strong><%= charge.label %></strong></dd></div>
         </dl>
         <% if (charge.status === 'pending') { %>
-          <p>Depois de pagar, atualize a página para conferir a confirmação.</p>
+          <p>A situação é atualizada automaticamente após a confirmação do Pix.</p>
           <a class="btn btn-light" href="">Atualizar situação</a>
         <% } %>
       </section>

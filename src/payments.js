@@ -21,8 +21,12 @@ export const chargeLabels = {
 };
 const route = '/charges';
 
+function effectiveStatus(charge) {
+  return charge.status === 'pending' && charge.due_date < businessDate(new Date()) ? 'expired' : charge.status;
+}
+
 function present(charge) {
-  const status = charge.status === 'pending' && charge.due_date < businessDate(new Date()) ? 'expired' : charge.status;
+  const status = effectiveStatus(charge);
   return {
     ...charge, status, label: chargeLabels[status], amount: chargeMoney.format(charge.amount_cents / 100),
     date: displayDueDate(charge.due_date),
@@ -249,6 +253,13 @@ export function insertPixCharge(db, env, { id, accountId, integrationId, custome
   return db.prepare(`INSERT INTO charges(id,account_id,customer_id,integration_id,
     description,amount_cents,due_date,provider_payload,created_at,provider_api,public_token,auto_email,issuer_email,recurring_series_id,notification_email)
     ${source} ON CONFLICT DO NOTHING RETURNING *`).bind(...args);
+}
+
+export async function publicPaymentStatus(db, publicToken) {
+  if (!/^[a-f0-9]{64}$/.test(publicToken)) return null;
+  const charge = await db.prepare('SELECT status,due_date FROM charges WHERE public_token=? AND provider_id IS NOT NULL')
+    .bind(publicToken).first();
+  return charge ? effectiveStatus(charge) : null;
 }
 
 export async function publicPayment(db, publicToken) {
