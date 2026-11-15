@@ -45,9 +45,18 @@ async function deliver(env, origin, id) {
   const db = env.DB;
   const now = Date.now();
   const job = await db.prepare(`UPDATE charge_emails SET status='sending',lease_until=?,attempt_count=attempt_count+1
-    WHERE id=? AND status IN ('queued','sending') AND next_at<=? AND lease_until<=? RETURNING *`)
+    WHERE id=? AND status IN ('queued','sending') AND next_at<=? AND lease_until<=?
+    AND NOT EXISTS (SELECT 1 FROM charge_email_attempts a WHERE a.email_id=charge_emails.id
+      AND a.number=charge_emails.attempt_count AND a.result='smtp_data_started')
+    RETURNING *`)
     .bind(now + lease, id, now, now).first();
-  if (!job) return;
+  if (!job) {
+    const stale = await db.prepare(`SELECT e.* FROM charge_emails e JOIN charge_email_attempts a
+      ON a.email_id=e.id AND a.number=e.attempt_count
+      WHERE e.id=? AND e.status='sending' AND e.lease_until<=? AND a.result='smtp_data_started'`).bind(id, now).first();
+    if (stale) await finish(db, stale, 'failed', 'mail_smtp_delivery_unknown');
+    return;
+  }
 
   const charge = await db.prepare('SELECT status,due_date,amount_cents,public_token,provider_id FROM charges WHERE id=?')
     .bind(job.charge_id).first();
@@ -66,16 +75,23 @@ async function deliver(env, origin, id) {
       email: job.recipient, bcc: job.bcc, url: paymentLink(origin, charge.public_token),
       amount: chargeMoney.format(charge.amount_cents / 100),
       dueDate: displayDueDate(charge.due_date), idempotencyKey: job.id,
+      async beforeSmtpData() {
+        const marked = await db.prepare(`UPDATE charge_email_attempts SET result='smtp_data_started'
+          WHERE email_id=? AND number=? AND finished_at IS NULL
+          AND EXISTS (SELECT 1 FROM charge_emails WHERE id=? AND status='sending' AND lease_until=? AND lease_until>?)`)
+          .bind(job.id, job.attempt_count, job.id, job.lease_until, Date.now()).run();
+        if (!marked.meta.changes) throw new Error('mail_transport_error');
+      },
     });
   } catch (error) {
-    result = /^mail_(not_configured|http_\d{3})$/.test(error.message) ? error.message : 'mail_transport_error';
+    result = /^mail_(not_configured|invalid_recipient|http_\d{3}|smtp_([45]\d{2}|auth_unavailable|delivery_unknown))$/.test(error.message) ? error.message : 'mail_transport_error';
   }
   if (result === 'sent') {
     await finish(db, job, 'sent', result);
     return;
   }
   const delay = retryDelays[job.attempt_count - 1];
-  const transient = /^(mail_transport_error|mail_http_(409|429|5\d{2}))$/.test(result);
+  const transient = /^(mail_transport_error|mail_http_(409|429|5\d{2})|mail_smtp_4\d{2})$/.test(result);
   const retryAt = delay && transient ? Date.now() + delay : 0;
   await finish(db, job, retryAt ? 'queued' : 'failed', result, retryAt);
 }

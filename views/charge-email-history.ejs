@@ -11,7 +11,7 @@
   <% } %>
   <% if (emailHistory.length) { %>
     <% const statuses = { queued: 'Na fila', sending: 'Em envio', sent: 'Aceito pelo serviço de e-mail', failed: 'Falha no envio', skipped: 'Envio dispensado' };
-       const results = { sent: 'Aceito pelo serviço de e-mail', interrupted: 'Tentativa interrompida', charge_unavailable: 'Cobrança indisponível para pagamento', retry_window_closed: 'Prazo de tentativa encerrado', mail_not_configured: 'Envio de e-mail não configurado', mail_transport_error: 'Falha de comunicação com o serviço de e-mail' }; %>
+       const results = { sent: 'Aceito pelo serviço de e-mail', interrupted: 'Tentativa interrompida', charge_unavailable: 'Cobrança indisponível para pagamento', retry_window_closed: 'Prazo de tentativa encerrado', mail_not_configured: 'Envio de e-mail não configurado', mail_transport_error: 'Falha de comunicação com o serviço de e-mail', mail_invalid_recipient: 'Endereço de e-mail inválido', mail_smtp_auth_unavailable: 'Servidor SMTP sem autenticação compatível', smtp_data_started: 'Envio em andamento', mail_smtp_delivery_unknown: 'Envio SMTP sem confirmação. Confira antes de reenviar.' }; %>
     <div class="table-responsive">
       <table class="table">
         <thead><tr><th>Data</th><th>Destinatário</th><th>Envio</th><th>Tentativa</th><th>Situação</th></tr></thead>
@@ -22,7 +22,7 @@
               <td class="text-break"><%= entry.recipient %></td>
               <td><%= entry.kind === 'initial' ? 'Automático' : 'Manual' %></td>
               <td><%= entry.number || '—' %></td>
-              <td><%= entry.result ? (results[entry.result] || ('Falha do serviço (HTTP ' + entry.result.slice(-3) + ')')) : statuses[entry.status] %><% if (entry.result && entry.status === 'queued') { %> · nova tentativa agendada<% } %></td>
+              <td><%= entry.result ? (results[entry.result] || ('Falha do serviço (' + (entry.result.startsWith('mail_smtp_') ? 'SMTP ' : 'HTTP ') + entry.result.slice(-3) + ')')) : statuses[entry.status] %><% if (entry.result && entry.status === 'queued') { %> · nova tentativa agendada<% } %></td>
             </tr>
           <% } %>
         </tbody>

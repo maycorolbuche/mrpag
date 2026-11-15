@@ -142,7 +142,26 @@ npx wrangler secret put RESEND_API_KEY
 
 O remetente deve pertencer ao domínio autorizado pelo Resend. Contas de teste do provedor podem restringir destinatários. Verifique spam e o painel de envios. Os testes automatizados simulam o provedor; a entrega real só pode ser validada após esta configuração.
 
-O código usa HTTPS, sem SMTP/Nodemailer. Nunca use `MAIL_MODE=log` em domínio público: a aplicação rejeita essa configuração para evitar exposição de links nos logs.
+Nunca use `MAIL_MODE=log` em domínio público: a aplicação rejeita essa configuração para evitar exposição de links nos logs.
+
+### Enviar pelo SMTP do cPanel da HostGator
+
+1. No cPanel, abra **Contas de e-mail** e crie uma caixa, por exemplo `cobrancas@mxsoft.com.br`.
+2. Na caixa criada, clique em **Conectar dispositivos** e procure **Configurações manuais → SSL/TLS seguro**. Anote o **Servidor de saída SMTP** da hospedagem e confira a porta **465**. Use o hostname indicado no cPanel, como `br00.hostgator.com.br`. O endereço precisa apontar para o servidor SMTP diretamente.
+3. No Cloudflare, abra **Workers & Pages → mrpag → Production → Settings → Variables and Secrets**. Cadastre os valores abaixo e clique em **Deploy**.
+
+| Nome | Tipo | Valor |
+| --- | --- | --- |
+| `MAIL_MODE` | Text | `smtp` |
+| `SMTP_HOST` | Text | Hostname do SMTP seguro indicado no cPanel |
+| `SMTP_USER` | Text | Endereço completo da caixa, por exemplo `cobrancas@mxsoft.com.br` |
+| `SMTP_PASSWORD` | Secret | Senha da caixa de e-mail |
+| `MAIL_FROM` | Text | `MR Pag <cobrancas@mxsoft.com.br>`, usando o endereço de `SMTP_USER` |
+
+O Worker abre uma conexão TLS na porta 465 e autentica com a conta criada no cPanel. Os e-mails de cobrança usam a fila existente do cron de cinco minutos. A recuperação de senha usa o mesmo remetente. Se a conexão cair depois de o envio da mensagem começar e o SMTP não confirmar o resultado, confira a entrega antes de reenviar para evitar duplicidade.
+
+[Configuração de e-mail seguro da HostGator](https://suporte.hostgator.com.br/hc/pt-br/articles/30820322757779-Como-configurar-uma-conta-de-e-mail-no-ThunderBird)
+
 
 ## 7. Publicações futuras
 
@@ -194,7 +213,7 @@ Ou abra o Worker em **Workers & Pages → mrpag → Observability**. Erros de ap
 | Banco | D1 vinculado ao Worker; sem arquivo SQLite da aplicação |
 | Páginas | Mesmo visual; templates pré-compilados em JS estático |
 | Senhas | WebCrypto com salt e pepper fora do D1 |
-| E-mails | Resend por HTTPS; requer configurar provedor |
+| E-mails | SMTP seguro ou Resend por HTTPS |
 | Local | Wrangler + D1 emulado, porta 8787 |
 | Deploy | Wrangler; migrations antes do deploy |
 

@@ -9,12 +9,12 @@ const integrationId = crypto.randomUUID();
 const chargeId = crypto.randomUUID();
 const orderId = 'ORD01HRYFWNYRE1MR1E60MW3X0T2P';
 
-async function setup(t, { origin, mailApi } = {}) {
+async function setup(t, { origin, mailApi, bindings = {} } = {}) {
   const calls = [];
   let payment;
   let failureStatus;
   const f = await fixture({
-    bindings: { PAYMENT_INTEGRATION_KEY: 'a'.repeat(64), ...(origin ? { APP_URL: origin } : {}) },
+    bindings: { PAYMENT_INTEGRATION_KEY: 'a'.repeat(64), ...(origin ? { APP_URL: origin } : {}), ...bindings },
     mailApi,
     async paymentApi(request) {
       const path = new URL(request.url).pathname;
@@ -273,4 +273,23 @@ test('uma falha temporária do serviço de e-mail é registrada e usa a mesma ch
   assert.deepEqual(keys, ['initial/' + chargeId, 'initial/' + chargeId]);
   assert.deepEqual((await f.db.prepare('SELECT result FROM charge_email_attempts ORDER BY number').all())
     .results.map(row => row.result), ['mail_http_503', 'sent']);
+});
+
+test('cron SMTP registra configuração incompleta e não repete um envio interrompido após DATA', async t => {
+  const f = await setup(t, { origin: 'https://pag.example.com', bindings: { MAIL_MODE: 'smtp' } });
+  await configure(f);
+  await createCharge(f);
+  const worker = await f.mf.getWorker();
+  await worker.scheduled({ cron: '*/5 * * * *' });
+  assert.equal((await f.db.prepare('SELECT result FROM charge_email_attempts').first()).result, 'mail_not_configured');
+
+  await f.db.batch([
+    f.db.prepare("UPDATE charge_emails SET status='sending',next_at=0,lease_until=1"),
+    f.db.prepare("UPDATE charge_email_attempts SET result='smtp_data_started',finished_at=NULL"),
+  ]);
+  await worker.scheduled({ cron: '*/5 * * * *' });
+  assert.deepEqual(await f.db.prepare('SELECT status,attempt_count FROM charge_emails').first(),
+    { status: 'failed', attempt_count: 1 });
+  assert.equal((await f.db.prepare('SELECT result FROM charge_email_attempts').first()).result, 'mail_smtp_delivery_unknown');
+  assert.equal(f.messages.length, 0);
 });

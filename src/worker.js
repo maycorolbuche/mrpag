@@ -1,7 +1,7 @@
 import { dispatchChargeEmails } from './charge-emails.js';
 import { render } from './generated/templates.js';
 import { token, digest, hashPassword, verifyPassword, passwordError, limited } from './security.js';
-import { sendRecovery } from './mail.js';
+import { mailSendingEnabled, sendRecovery } from './mail.js';
 import { customerRoutes } from './customers.js';
 import { paymentRoutes, paymentWebhook, publicPayment } from './payments.js';
 
@@ -206,7 +206,7 @@ export default {
   },
   async scheduled(event, env, ctx) {
     if (event.cron === '*/5 * * * *') {
-      if (env.MAIL_MODE !== 'resend') return;
+      if (!mailSendingEnabled(env)) return;
       const { origin } = configuration(env, new Request('https://scheduled.invalid'));
       ctx.waitUntil(dispatchChargeEmails(env, origin));
     } else {
