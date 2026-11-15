@@ -2,7 +2,7 @@ const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 })[char]);
 
-export function emailLayout({ title, introduction, badge, tone = 'green', amount, dueDate, action, url, note, preview = false }) {
+export function emailLayout({ title, introduction, badge, tone = 'green', amount, dueDate, description, action, url, note, preview = false }) {
   const palette = {
     green: ['#e6f2e9', '#20563d'],
     amber: ['#fff3de', '#784800'],
@@ -26,6 +26,7 @@ ${preview ? '<p style="margin:0 0 22px;padding:12px;background:#fff3de;color:#78
 <h1 style="margin:15px 0 10px;font-size:28px;line-height:34px;color:#15382f">${escapeHtml(title)}</h1>
 <p style="margin:0 0 22px;color:#456056;font-size:16px;line-height:25px">${escapeHtml(introduction)}</p>
 ${amount ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px;background:#f2f6f0;border:1px solid #e0e9df;border-radius:10px">
+${description ? `<tr><td colspan="2" style="padding:16px 16px 0;overflow-wrap:anywhere"><span style="color:#456056;font-size:12px">Descrição</span><br><strong style="font-size:16px;line-height:23px;color:#15382f">${escapeHtml(description)}</strong></td></tr>` : ''}
 <tr><td valign="top" width="58%" style="padding:16px 12px 16px 16px"><span style="color:#456056;font-size:12px">Valor</span><br><strong style="font-size:24px;line-height:32px;color:#15382f">${escapeHtml(amount)}</strong></td>
 <td valign="top" style="padding:16px 12px 16px 0"><span style="color:#456056;font-size:12px">Vencimento</span><br><strong style="font-size:16px;line-height:32px;color:#15382f">${escapeHtml(dueDate)}</strong></td></tr></table>` : ''}
 <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td>${actionHtml}</td></tr></table>

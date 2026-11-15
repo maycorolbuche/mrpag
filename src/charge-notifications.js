@@ -20,7 +20,7 @@ export async function notificationSettings({ request, url, env, db, accountId, a
     due.setUTCDate(due.getUTCDate() + offset);
     try {
       await sendChargeEmail(env, {
-        email: actorEmail, purpose, amount: chargeMoney.format(149.90),
+        email: actorEmail, purpose, amount: chargeMoney.format(149.90), description: 'Mensalidade de serviços — exemplo',
         dueDate: displayDueDate(due.toISOString().slice(0, 10)), preview: true,
       });
       return redirect(settingsPath + '?test=sent');

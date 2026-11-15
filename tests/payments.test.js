@@ -237,6 +237,8 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   assert.equal(f.messages.length, 1);
   assert.equal(keys[0], 'initial/' + chargeId);
   assert.deepEqual(f.messages[0].to, ['pix@example.com']);
+  assert.match(f.messages[0].text, /Descrição: Cobrança de teste/);
+  assert.match(f.messages[0].html, /Cobrança de teste/);
   assert.deepEqual(f.messages[0].bcc, ['admin@mrpag.local']);
   const url = new URL(f.messages[0].text.match(/https:\/\/[^\s]+/)[0]);
   assert.equal(url.origin, origin);
@@ -417,6 +419,8 @@ test('recorrência gera uma cobrança por ciclo, reutiliza e-mail e permite edit
   assert.equal(f.messages.length, 1);
   assert.deepEqual(f.messages[0].bcc, ['admin@mrpag.local']);
   assert.deepEqual(f.messages[0].to, ['pix@example.com']);
+  assert.match(f.messages[0].text, /Descrição: Mensalidade/);
+  assert.match(f.messages[0].html, /Mensalidade/);
   assert.match((await f.agent.request(path)).text, new RegExp('/charges/' + charge.id));
   assert.match((await f.agent.request('/charges/' + charge.id)).text, /Ver série/);
   const expected = new Date(due + 'T12:00:00Z');
@@ -567,6 +571,7 @@ test('modelos de teste são enviados apenas ao usuário autenticado sem gravar c
     assert.deepEqual(message.to, ['admin@mrpag.local']);
     assert.match(message.subject, /^\[Teste\]/);
     assert.match(message.html, /E-mail de teste/);
+    assert.match(message.html, /Mensalidade de serviços/);
     assert.doesNotMatch(message.html, /href=/);
     assert.match(message.text, /dados fictícios/);
   }
