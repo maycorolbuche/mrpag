@@ -95,18 +95,12 @@ Guarde esse valor em local privado. Ele será o `PASSWORD_PEPPER`. Configure no 
 npx wrangler secret put PASSWORD_PEPPER
 ```
 
-Cole o valor quando solicitado. O mesmo valor precisa ser usado para gerar a senha do primeiro administrador. Copie:
-
-```powershell
-Copy-Item .seed.vars.example .seed.vars
-```
-
-Edite `.seed.vars` localmente:
+Cole o valor quando solicitado. O mesmo valor precisa ser usado para gerar a senha do primeiro administrador. Inclua os seguintes valores no mesmo `.dev.vars` usado para desenvolvimento:
 
 ```dotenv
-PASSWORD_PEPPER=O-MESMO-VALOR-DO-SECRET
-SEED_EMAIL=seu-email@seu-dominio.com.br
-SEED_PASSWORD="Uma senha pessoal inicial de pelo menos 12 caracteres"
+REMOTE_PASSWORD_PEPPER=O-MESMO-VALOR-DO-SECRET
+REMOTE_SEED_EMAIL=seu-email@seu-dominio.com.br
+REMOTE_SEED_PASSWORD="Uma senha pessoal inicial de pelo menos 12 caracteres"
 ```
 
 Use uma senha própria; o seed remoto rejeita a senha default local. O arquivo é ignorado pelo Git. Se a senha contiver `#` ou espaços, mantenha as aspas. Execute:
@@ -115,7 +109,7 @@ Use uma senha própria; o seed remoto rejeita a senha default local. O arquivo �
 npm run db:seed:remote
 ```
 
-Confirme a execução remota se solicitado. Um registro já existente nunca é sobrescrito pelo seed; ele não é uma ferramenta de redefinição de senha. Abra a URL publicada e entre com `SEED_EMAIL` e `SEED_PASSWORD`. A primeira troca é obrigatória. Depois de entrar, pode apagar `.seed.vars`, preservando uma cópia segura do pepper para recuperação/manutenção.
+Confirme a execução remota se solicitado. Um registro já existente nunca é sobrescrito pelo seed; ele não é uma ferramenta de redefinição de senha. Abra a URL publicada e entre com `REMOTE_SEED_EMAIL` e `REMOTE_SEED_PASSWORD`. A primeira troca é obrigatória. Após criar a conta, remova as três variáveis remotas do `.dev.vars` e preserve o pepper em um local seguro. Se você já usava `.seed.vars`, transfira os valores para os nomes `REMOTE_*` apenas se precisar provisionar uma base remota vazia.
 
 Não altere o pepper a cada deploy. Ele é necessário para conferir as senhas existentes e não fica no D1. Nenhuma senha ou chave deve ser adicionada ao `wrangler.jsonc`.
 

@@ -32,7 +32,7 @@ npm run db:seed:remote
 npm run deploy
 ```
 
-`npm run deploy` aplica migrations remotas antes de publicar o Worker e seus assets. O seed é separado e nunca sobrescreve uma conta existente. Os recursos remotos não são criados pelos testes nem pelo build.
+`npm run deploy` aplica migrations remotas antes de publicar o Worker e seus assets. O seed remoto é um comando separado e lê `REMOTE_SEED_EMAIL`, `REMOTE_SEED_PASSWORD` e `REMOTE_PASSWORD_PEPPER` do mesmo `.dev.vars`. As variáveis remotas precisam ser preenchidas apenas para provisionar uma base remota vazia. O seed preserva credenciais existentes. Os recursos remotos não são criados pelos testes nem pelo build.
 
 ## Autenticação
 
