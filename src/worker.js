@@ -4,7 +4,7 @@ import { render } from './generated/templates.js';
 import { token, digest, hashPassword, verifyPassword, passwordError, limited } from './security.js';
 import { mailSendingEnabled, sendRecovery } from './mail.js';
 import { customerRoutes } from './customers.js';
-import { paymentRoutes, paymentWebhook, publicPayment } from './payments.js';
+import { paymentRoutes, paymentWebhook, publicPayment, publicPaymentStatus } from './payments.js';
 
 const generic = 'Se o e-mail estiver cadastrado, você receberá um link para redefinir sua senha.';
 const dummy = `pbkdf2-sha256:100000:${'0'.repeat(64)}:${'0'.repeat(64)}`;
@@ -58,6 +58,10 @@ async function handle(request, env) {
     headers.set('Referrer-Policy', 'no-referrer');
     headers.set('X-Robots-Tag', 'noindex, nofollow');
     if (request.method !== 'GET') return new Response(null, { status: 405, headers });
+    if (path.endsWith('/status')) {
+      const status = await publicPaymentStatus(db, path.slice('/pay/'.length, -'/status'.length));
+      return Response.json({ status }, { status: status ? 200 : 404, headers });
+    }
     const charge = await publicPayment(db, path.slice('/pay/'.length));
     headers.set('Content-Type', 'text/html; charset=utf-8');
     return new Response(render('public-payment', { charge }), { status: charge ? 200 : 404, headers });

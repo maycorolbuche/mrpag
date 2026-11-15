@@ -66,7 +66,7 @@ A integração por Access Token continua disponível em **Configuração manual*
 
 Novas cobranças com Pix disponível entram na fila de e-mail automaticamente. O Worker processa a fila a cada cinco minutos com o provedor definido em `MAIL_MODE`. O MR Pag aceita SMTP seguro da HostGator ou Resend. Veja como [configurar o envio de e-mails](CLOUDFLARE.md#enviar-pelo-smtp-do-cpanel-da-hostgator). O modo local `log` continua disponível para redefinição de senha.
 
-Na tela da cobrança, copie o **Link de pagamento** ou use **Enviar por e-mail**. O link pode ser aberto sem login e mostra a situação da cobrança. Após a baixa, o cliente pode atualizar a página para ver **Paga**. Cobranças antigas já emitidas ficam disponíveis para compartilhamento e envio manual. A atualização do Worker não dispara e-mails retroativos.
+Na tela da cobrança, copie o **Link de pagamento** ou use **Enviar por e-mail**. O link pode ser aberto sem login e mostra a situação da cobrança. Quando o MR Pag registra a baixa, a página aberta se atualiza automaticamente para **Paga**. Cobranças antigas já emitidas ficam disponíveis para compartilhamento e envio manual. A atualização do Worker não dispara e-mails retroativos.
 
 O histórico mostra o destinatário, cada tentativa e a resposta do serviço. **Aceito pelo serviço de e-mail** indica que o provedor recebeu a mensagem para envio. Falhas temporárias são repetidas automaticamente. Se houver uma falha definitiva, corrija a causa e use **Enviar novamente por e-mail**.
 

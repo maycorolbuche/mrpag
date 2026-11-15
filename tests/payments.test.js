@@ -246,6 +246,12 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   assert.match(page.headers.get('x-robots-tag'), /noindex/);
   assert.match(page.text, /codigo-pix-de-teste/);
   assert.doesNotMatch(page.text, /pix@example.com|52998224725|Cliente Pix/);
+  const statusUrl = url.pathname + '/status';
+  const statusPage = await publicAgent.request(statusUrl);
+  assert.equal(statusPage.status, 200);
+  assert.equal(statusPage.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(JSON.parse(statusPage.text), { status: 'pending' });
+  assert.equal((await publicAgent.request('/pay/' + 'f'.repeat(64) + '/status')).status, 404);
   assert.equal((await publicAgent.request('/pay/' + 'f'.repeat(64))).status, 404);
   assert.equal((await publicAgent.request(url.pathname, { method: 'POST' })).status, 405);
 
@@ -266,7 +272,8 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   assert.equal((await webhook(f)).status, 200);
   const paid = await publicAgent.request(url.pathname);
   assert.match(paid.text, /<strong>Paga<\/strong>/);
-  assert.doesNotMatch(paid.text, /codigo-pix-de-teste/);
+  assert.doesNotMatch(paid.text, /codigo-pix-de-teste|payment-status\.js/);
+  assert.deepEqual(JSON.parse((await publicAgent.request(statusUrl)).text), { status: 'paid' });
   await post(f.agent, path, path + '/email', { mail_request_id: crypto.randomUUID() });
   await run();
   assert.equal(f.messages.length, 2);
