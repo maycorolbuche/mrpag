@@ -12,3 +12,6 @@ document.querySelectorAll('form').forEach(form => form.addEventListener('submit'
   const button = form.querySelector('[type="submit"]');
   if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); button.textContent = 'Aguarde…'; }
 }));
+
+const authorizationLink = document.querySelector('[data-payment-authorization]');
+if (authorizationLink) window.location.replace(authorizationLink.href);

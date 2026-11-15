@@ -47,7 +47,11 @@ test('OAuth vincula a conta, renova o acesso e confirma Pix pelo webhook compart
   await f.db.prepare(`INSERT INTO customers(account_id,name,person_type,document,email,created_at,updated_at)
     VALUES (1,'Cliente Pix','person','52998224725','pix@example.com',0,0)`).run();
 
-  const start = async () => new URL((await post(f.agent, settings, connect, {})).headers.get('location'));
+  const start = async () => {
+    const page = await post(f.agent, settings, connect, {});
+    assert.equal(page.status, 200);
+    return new URL(page.text.match(/href="([^"]+)" data-payment-authorization/)[1].replaceAll('&amp;', '&'));
+  };
   const authorization = await start();
   assert.equal(authorization.origin, 'https://auth.mercadopago.com');
   assert.equal(authorization.searchParams.get('redirect_uri'), origin + callback);

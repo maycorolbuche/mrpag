@@ -12,7 +12,7 @@ export function oauthReady(env, origin) {
     /^[a-f0-9]{64}$/i.test(env.PAYMENT_INTEGRATION_KEY || '');
 }
 
-export async function startMercadoPagoOAuth({ env, db, origin, accountId, sessionHash, redirect }) {
+export async function startMercadoPagoOAuth({ env, db, origin, accountId, sessionHash, redirect, show }) {
   if (!oauthReady(env, origin)) return redirect(`${settings}?oauth=unavailable`);
   const state = token();
   const verifier = token();
@@ -36,7 +36,7 @@ export async function startMercadoPagoOAuth({ env, db, origin, accountId, sessio
     code_challenge: challenge,
     code_challenge_method: 'S256',
   });
-  return redirect(authorization.href);
+  return show('payment-authorize', { authorizationUrl: authorization.href });
 }
 
 async function integrationId(accountId, collectorId, liveMode) {

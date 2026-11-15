@@ -66,9 +66,6 @@ async function handle(request, env) {
   }
   const show = (name, values = {}, status = 200) => {
     const headers = responseHeaders(); headers.set('Content-Type', 'text/html; charset=utf-8');
-    if (name === 'payment-settings' && values.oauthReady) {
-      headers.set('Content-Security-Policy', securityHeaders['Content-Security-Policy'] + ' https://auth.mercadopago.com');
-    }
     return new Response(render(name, { csrf: session?.csrf || '', user, account, currentPath: path, saved: url.searchParams.get('saved') === '1', error: null, success: null, email: '', resetToken: '', ...values }), { status, headers });
   };
   const auth = (page, values = {}, status = 200) => show('auth', { page, ...values }, status);
