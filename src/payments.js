@@ -106,7 +106,7 @@ async function saveProviderState(db, charge, provider, payment, expectedId) {
   const image = typeof pix?.qr_code_base64 === 'string' && pix.qr_code_base64.length <= 400000 &&
     /^[A-Za-z0-9+/]+={0,2}$/.test(pix.qr_code_base64) ? pix.qr_code_base64 : null;
   await db.prepare(`UPDATE charges SET provider_id=?, status=?, provider_updated_at=?,
-    paid_at=COALESCE(paid_at,?), pix_code=COALESCE(?,pix_code), pix_image=COALESCE(?,pix_image)
+    paid_at=COALESCE(paid_at,?), pix_code=COALESCE(?,pix_code), pix_image=COALESCE(?,pix_image), creation_failure=NULL
     WHERE id=? AND account_id=? AND integration_id=? AND (provider_id IS NULL OR provider_id=?)
     AND provider_updated_at<=?
     AND (status NOT IN ('paid','refunded','charged_back') OR status=?
@@ -121,6 +121,39 @@ async function chargeProvider(env, db, charge) {
   return paymentProvider(env, integration);
 }
 
+function paymentFailure(error) {
+  const status = error.statusCode;
+  if (Number.isInteger(status) && status >= 400 && status <= 599) return `http_${status}`;
+  if (error.name === 'TimeoutError' || error.name === 'AbortError') return 'timeout';
+  if (error.message === 'payment_integration_key_missing') return 'integration_key';
+  if (error.name === 'OperationError') return 'credentials_unreadable';
+  if (['payment_provider_data_mismatch', 'payment_provider_timestamp_missing', 'invalid_provider_payment_id'].includes(error.message)) return 'unexpected_response';
+  return 'unknown';
+}
+
+function paymentFailureMessage(code) {
+  const status = /^http_([45]\d{2})$/.exec(code || '')?.[1];
+  if (status) {
+    const messages = {
+      400: 'Confira os dados do cliente, o valor e o vencimento da cobrança.',
+      401: 'Confira se o Access Token da integração usada nesta cobrança está válido e pertence ao ambiente correto (Teste ou Produção).',
+      403: 'Confira as permissões da integração usada nesta cobrança.',
+      404: 'O pagamento ou recurso não foi localizado na conta conectada.',
+      409: 'A solicitação entrou em conflito com uma operação anterior. Confira a cobrança antes de repetir.',
+      429: 'O provedor atingiu o limite de solicitações. Aguarde e tente novamente.',
+    };
+    return `Mercado Pago (HTTP ${status}). ${messages[status] || 'Confira a situação no Mercado Pago e tente novamente mais tarde.'}`;
+  }
+  const messages = {
+    timeout: 'O Mercado Pago demorou para responder. Confira a situação no painel do provedor.',
+    integration_key: 'A chave de criptografia da integração não está configurada no Worker.',
+    credentials_unreadable: 'O MR Pag não conseguiu ler as credenciais. Confira se a chave de criptografia do Worker é a mesma usada ao salvar a integração.',
+    unexpected_response: 'A resposta do Mercado Pago não pôde ser validada. Confira a cobrança no painel do provedor.',
+    unknown: 'O MR Pag não conseguiu confirmar a operação. Confira a situação no painel do Mercado Pago.',
+  };
+  return messages[code] || 'O motivo da falha anterior não foi registrado. Confira a cobrança no painel do Mercado Pago.';
+}
+
 async function issue({ db, env }, charge) {
   if (charge.provider_id || Date.now() - charge.created_at > maximumRetryAge) return;
   try {
@@ -130,9 +163,10 @@ async function issue({ db, env }, charge) {
     const complete = payment.collector_id != null && payment.currency_id && payment.date_last_updated;
     await saveProviderState(db, charge, provider, complete ? payment : await provider.get(id), id);
   } catch (error) {
-    console.error(JSON.stringify({ event: 'pix_creation_failed', charge_id: charge.id, provider_status: error.statusCode || null }));
-    await db.prepare("UPDATE charges SET status='creation_error' WHERE id=? AND account_id=? AND provider_id IS NULL")
-      .bind(charge.id, charge.account_id).run();
+    const reason = paymentFailure(error);
+    console.error(JSON.stringify({ event: 'pix_creation_failed', charge_id: charge.id, provider_status: error.statusCode || null, reason }));
+    await db.prepare("UPDATE charges SET status='creation_error', creation_failure=? WHERE id=? AND account_id=? AND provider_id IS NULL")
+      .bind(reason, charge.id, charge.account_id).run();
   }
 }
 
@@ -188,15 +222,17 @@ export async function paymentRoutes(context) {
   const charge = await db.prepare(`SELECT c.*,u.name AS customer_name FROM charges c
     JOIN customers u ON u.id=c.customer_id AND u.account_id=c.account_id WHERE c.id=? AND c.account_id=?`).bind(id, accountId).first();
   if (!charge) return null;
-  if (!action && request.method === 'GET') return show('charge-detail', { charge: present(charge) });
+  if (!action && request.method === 'GET') return show('charge-detail', {
+    charge: present(charge), error: charge.status === 'creation_error' ? paymentFailureMessage(charge.creation_failure) : null,
+  });
   if (request.method !== 'POST' || !action) return null;
   if (action === 'retry') await issue(context, charge);
   if (action === 'refresh' && charge.provider_id) {
     try {
       const provider = await chargeProvider(env, db, charge);
       await saveProviderState(db, charge, provider, await provider.get(charge.provider_id), charge.provider_id);
-    } catch {
-      return show('charge-detail', { charge: present(charge), error: 'Não foi possível consultar o pagamento agora.' }, 502);
+    } catch (error) {
+      return show('charge-detail', { charge: present(charge), error: paymentFailureMessage(paymentFailure(error)) }, 502);
     }
   }
   return redirect(`${route}/${id}`);
