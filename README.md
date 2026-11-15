@@ -34,6 +34,8 @@ npm run deploy
 
 `npm run deploy` aplica migrations remotas antes de publicar o Worker e seus assets. O seed remoto é um comando separado e lê `REMOTE_SEED_EMAIL`, `REMOTE_SEED_PASSWORD` e `REMOTE_PASSWORD_PEPPER` do mesmo `.dev.vars`. As variáveis remotas precisam ser preenchidas apenas para provisionar uma base remota vazia. O seed preserva credenciais existentes. Os recursos remotos não são criados pelos testes nem pelo build.
 
+Para emitir cobranças Pix, siga o [passo a passo de integração com o Mercado Pago](docs/MERCADO-PAGO.md).
+
 ## Autenticação
 
 Login, lembrar por 30 dias (normal: 2 horas), logout, troca inicial obrigatória, alteração validando senha atual e recuperação por e-mail. Links expiram em 30 minutos, têm uso único inclusive sob concorrência e são guardados como hash. Mudanças de senha invalidam outras sessões e links pendentes. Sem cadastro público.
