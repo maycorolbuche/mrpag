@@ -25,7 +25,7 @@
     <details<% if (manualError) { %> open<% } %>>
       <summary>Configuração manual</summary>
       <% if (manualError) { %><div class="alert alert-danger mt-3" role="alert"><%= manualError %></div><% } %>
-      <p class="mt-3">Cadastre a URL abaixo no painel do Mercado Pago para eventos de pagamento. Depois, informe a assinatura secreta e o Access Token da mesma aplicação.</p>
+      <p class="mt-3">Cadastre a URL abaixo no painel do Mercado Pago para o evento Order (Mercado Pago). Depois, informe a assinatura secreta e o Access Token da mesma aplicação.</p>
       <p class="text-break"><code><%= endpoint %></code></p>
       <form method="post" action="/account/payments">
         <input type="hidden" name="_csrf" value="<%= csrf %>">

@@ -1,5 +1,5 @@
 import { digest, token } from './security.js';
-import { exchangeMercadoPagoToken, sealCredentials } from './payment-providers.js';
+import { exchangeMercadoPagoToken, openCredentials, sealCredentials } from './payment-providers.js';
 
 export const oauthCallback = '/account/payments/mercado-pago/callback';
 export const oauthConnect = '/account/payments/mercado-pago/connect';
@@ -39,9 +39,16 @@ export async function startMercadoPagoOAuth({ env, db, origin, accountId, sessio
   return show('payment-authorize', { authorizationUrl: authorization.href });
 }
 
-async function integrationId(accountId, collectorId, liveMode) {
-  const hash = await digest(`mercado-pago-oauth:${accountId}:${collectorId}:${liveMode}`);
-  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+async function integrationId(db, env, accountId, grant) {
+  const base = `mercado-pago-oauth:${accountId}:${grant.collectorId}:${grant.liveMode}`;
+  const uuidFor = async reference => {
+    const hash = await digest(reference);
+    return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+  };
+  const oldId = await uuidFor(base);
+  const old = await db.prepare('SELECT * FROM payment_integrations WHERE id=? AND account_id=?').bind(oldId, accountId).first();
+  if (old && (await openCredentials(env, old)).clientId === grant.clientId) return oldId;
+  return uuidFor(`${base}:${grant.clientId}`);
 }
 
 export async function finishMercadoPagoOAuth({ env, db, url, origin, accountId, sessionHash, redirect }) {
@@ -61,7 +68,7 @@ export async function finishMercadoPagoOAuth({ env, db, url, origin, accountId, 
     const grant = await exchangeMercadoPagoToken(env, {
       grant_type: 'authorization_code', code, redirect_uri: origin + oauthCallback, code_verifier: attempt.verifier,
     }, env.MERCADO_PAGO_OAUTH_MODE !== 'test');
-    const id = await integrationId(accountId, grant.collectorId, grant.liveMode);
+    const id = await integrationId(db, env, accountId, grant);
     const credentials = await sealCredentials(env, id, grant);
     const now = Date.now();
     const [saved] = await db.batch([

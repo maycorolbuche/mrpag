@@ -1,3 +1,5 @@
+import { orderIdPattern } from './mercado-pago-orders.js';
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -15,7 +17,7 @@ export async function sealCredentials(env, integration, credentials) {
   return JSON.stringify([btoa(String.fromCharCode(...iv)), btoa(String.fromCharCode(...new Uint8Array(data)))]);
 }
 
-async function openCredentials(env, integration) {
+export async function openCredentials(env, integration) {
   const key = await encryptionKey(env);
   if (!key) throw new Error('payment_integration_key_missing');
   const [iv, data] = JSON.parse(integration.credentials).map(value => Uint8Array.from(atob(value), char => char.charCodeAt(0)));
@@ -63,13 +65,23 @@ export async function verifySignature(request, paymentId, secret) {
   return crypto.subtle.verify('HMAC', key, Uint8Array.from(signature.match(/../g), byte => parseInt(byte, 16)), encoder.encode(manifest));
 }
 
-export async function exchangeMercadoPagoToken(env, parameters, liveMode) {
+function oauthClient(env, clientId) {
+  if (clientId === env.MERCADO_PAGO_CLIENT_ID) {
+    return { secret: env.MERCADO_PAGO_CLIENT_SECRET, webhook: env.MERCADO_PAGO_WEBHOOK_SECRET };
+  }
+  if (clientId && clientId === env.MERCADO_PAGO_LEGACY_CLIENT_ID) {
+    return { secret: env.MERCADO_PAGO_LEGACY_CLIENT_SECRET, webhook: env.MERCADO_PAGO_LEGACY_WEBHOOK_SECRET };
+  }
+  return {};
+}
+
+export async function exchangeMercadoPagoToken(env, parameters, liveMode, clientId = env.MERCADO_PAGO_CLIENT_ID) {
   const response = await requestMercadoPago(null, '/oauth/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_id: env.MERCADO_PAGO_CLIENT_ID,
-      client_secret: env.MERCADO_PAGO_CLIENT_SECRET,
+      client_id: clientId,
+      client_secret: oauthClient(env, clientId).secret,
       ...parameters,
       test_token: !liveMode,
     }),
@@ -84,12 +96,12 @@ export async function exchangeMercadoPagoToken(env, parameters, liveMode) {
   }
   return {
     token: response.access_token, refreshToken: response.refresh_token, collectorId, liveMode,
-    expiresAt: Date.now() + expiresIn * 1000, clientId: env.MERCADO_PAGO_CLIENT_ID,
+    expiresAt: Date.now() + expiresIn * 1000, clientId,
   };
 }
 
 async function refreshCredentials(env, integration, credentials) {
-  if (credentials.clientId !== env.MERCADO_PAGO_CLIENT_ID || !env.MERCADO_PAGO_CLIENT_SECRET) {
+  if (!oauthClient(env, credentials.clientId).secret) {
     throw new Error('payment_oauth_reconnect');
   }
   const now = Date.now();
@@ -111,7 +123,7 @@ async function refreshCredentials(env, integration, credentials) {
   try {
     const refreshed = await exchangeMercadoPagoToken(env, {
       grant_type: 'refresh_token', refresh_token: credentials.refreshToken,
-    }, credentials.liveMode);
+    }, credentials.liveMode, credentials.clientId);
     if (refreshed.collectorId !== credentials.collectorId) throw new Error('invalid_payment_oauth_grant');
     const encrypted = await sealCredentials(env, integration.id, refreshed);
     await db.prepare(`UPDATE payment_integrations SET credentials=?
@@ -128,26 +140,31 @@ async function refreshCredentials(env, integration, credentials) {
   }
 }
 
-export async function paymentProvider(env, integration) {
+export async function paymentProvider(env, integration, api = 'payments') {
   if (integration.provider !== 'mercado-pago') throw new Error('unsupported_payment_provider');
   let credentials = await openCredentials(env, integration);
   if (integration.oauth_collector_id && credentials.expiresAt <= Date.now() + 60_000) {
     credentials = await refreshCredentials(env, integration, credentials);
   }
+  const webhookSecret = integration.oauth_collector_id
+    ? oauthClient(env, credentials.clientId).webhook : credentials.webhookSecret;
+  const orders = api === 'orders';
+  const endpoint = orders ? '/v1/orders' : '/v1/payments';
+  const idPattern = orders ? orderIdPattern : /^\d{1,24}$/;
   return {
     create(charge) {
-      return requestMercadoPago(credentials.token, '/v1/payments', {
+      return requestMercadoPago(credentials.token, endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': charge.id },
         body: charge.provider_payload,
       });
     },
     get(id) {
-      if (!/^\d{1,24}$/.test(id)) throw new Error('invalid_provider_payment_id');
-      return requestMercadoPago(credentials.token, `/v1/payments/${id}`);
+      if (!idPattern.test(id)) throw new Error('invalid_provider_payment_id');
+      return requestMercadoPago(credentials.token, `${endpoint}/${id}`);
     },
     verify(request, id) {
-      return verifySignature(request, id, credentials.webhookSecret);
+      return verifySignature(request, id, webhookSecret);
     },
     collectorId: credentials.collectorId,
   };

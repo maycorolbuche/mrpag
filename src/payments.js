@@ -3,6 +3,8 @@ import {
   finishMercadoPagoOAuth, oauthCallback, oauthConnect, oauthReady, oauthWebhook, startMercadoPagoOAuth,
 } from './mercado-pago-oauth.js';
 
+import { orderIdPattern, pixOrderPayload, readPixOrder } from './mercado-pago-orders.js';
+
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const minutes = 60_000;
 const maximumRetryAge = 15 * minutes;
@@ -102,10 +104,9 @@ function validDueDate(value) {
   return expiry - now.getTime() >= 31 * minutes && expiry - now.getTime() < 30 * 24 * 60 * minutes;
 }
 
-async function saveProviderState(db, charge, provider, payment, expectedId) {
+function readPixPayment(payment, charge, provider) {
   const id = String(payment.id || '');
-  if (!/^\d{1,24}$/.test(id) || (expectedId && id !== expectedId) ||
-      (charge.provider_id && id !== charge.provider_id) || payment.external_reference !== charge.id ||
+  if (!/^\d{1,24}$/.test(id) || payment.external_reference !== charge.id ||
       payment.payment_method_id !== 'pix' || payment.currency_id !== 'BRL' ||
       Math.round(Number(payment.transaction_amount) * 100) !== charge.amount_cents ||
       String(payment.collector_id ?? '') !== provider.collectorId) {
@@ -114,9 +115,19 @@ async function saveProviderState(db, charge, provider, payment, expectedId) {
   const status = payment.status === 'cancelled' && payment.status_detail === 'expired'
     ? 'expired'
     : (Object.hasOwn(statuses, payment.status) ? statuses[payment.status] : 'pending');
-  const timestamp = Date.parse(payment.date_last_updated || payment.date_created || '');
+  const date = payment.date_last_updated || payment.date_created;
+  return { id, status, date, paidAt: payment.date_approved || date, pix: payment.point_of_interaction?.transaction_data };
+}
+
+async function saveProviderState(db, charge, provider, payment, expectedId) {
+  const { id, status, date, paidAt, pix } = charge.provider_api === 'orders'
+    ? readPixOrder(payment, charge)
+    : readPixPayment(payment, charge, provider);
+  if ((expectedId && id !== expectedId) || (charge.provider_id && id !== charge.provider_id)) {
+    throw new Error('payment_provider_data_mismatch');
+  }
+  const timestamp = Date.parse(date || '');
   if (!Number.isFinite(timestamp)) throw new Error('payment_provider_timestamp_missing');
-  const pix = payment.point_of_interaction?.transaction_data;
   const code = typeof pix?.qr_code === 'string' && pix.qr_code.length <= 4096 ? pix.qr_code : null;
   const image = typeof pix?.qr_code_base64 === 'string' && pix.qr_code_base64.length <= 400000 &&
     /^[A-Za-z0-9+/]+={0,2}$/.test(pix.qr_code_base64) ? pix.qr_code_base64 : null;
@@ -126,14 +137,14 @@ async function saveProviderState(db, charge, provider, payment, expectedId) {
     AND provider_updated_at<=?
     AND (status NOT IN ('paid','refunded','charged_back') OR status=?
       OR (status='paid' AND ? IN ('refunded','charged_back')))`)
-    .bind(id, status, timestamp, status === 'paid' ? payment.date_approved || payment.date_last_updated || payment.date_created : null,
+    .bind(id, status, timestamp, status === 'paid' ? paidAt : null,
       code, image, charge.id, charge.account_id, charge.integration_id, id, timestamp, status, status).run();
 }
 
 async function chargeProvider(env, db, charge) {
   const integration = await db.prepare('SELECT * FROM payment_integrations WHERE id=? AND account_id=?')
     .bind(charge.integration_id, charge.account_id).first();
-  return paymentProvider(env, integration);
+  return paymentProvider(env, integration, charge.provider_api);
 }
 
 function paymentFailure(error) {
@@ -179,7 +190,9 @@ async function issue({ db, env }, charge) {
     const provider = await chargeProvider(env, db, charge);
     const payment = await provider.create(charge);
     const id = String(payment.id || '');
-    const complete = payment.collector_id != null && payment.currency_id && payment.date_last_updated;
+    const complete = charge.provider_api === 'orders'
+      ? payment.last_updated_date
+      : payment.collector_id != null && payment.currency_id && payment.date_last_updated;
     await saveProviderState(db, charge, provider, complete ? payment : await provider.get(id), id);
   } catch (error) {
     const reason = paymentFailure(error);
@@ -223,20 +236,15 @@ export async function paymentRoutes(context) {
     if (!customer?.email || !/^\d{11}$|^\d{14}$/.test(customer.document || '')) {
       return render('Selecione um cliente ativo com e-mail e CPF ou CNPJ cadastrados.', 422);
     }
-    const notificationUrl = integration.oauth_collector_id
-      ? `${origin}${oauthWebhook}?charge=${fields.request_id}`
-      : webhookUrl(origin, integration.id);
-    const payload = {
-      transaction_amount: cents / 100, description, payment_method_id: 'pix',
-      date_of_expiration: `${fields.due_date}T23:59:59.000-03:00`,
-      external_reference: fields.request_id,
-      ...(origin.startsWith('https://') ? { notification_url: notificationUrl } : {}),
+    const now = Date.now();
+    const payload = pixOrderPayload({
+      id: fields.request_id, description, cents, dueDate: fields.due_date, now,
       payer: { email: customer.email, identification: { type: customer.document.length === 11 ? 'CPF' : 'CNPJ', number: customer.document } },
-    };
+    });
     const created = await db.prepare(`INSERT INTO charges(id,account_id,customer_id,integration_id,
-      description,amount_cents,due_date,provider_payload,created_at) VALUES (?,?,?,?,?,?,?,?,?)
+      description,amount_cents,due_date,provider_payload,created_at,provider_api) VALUES (?,?,?,?,?,?,?,?,?,'orders')
       ON CONFLICT(id) DO NOTHING RETURNING *`)
-      .bind(fields.request_id, accountId, customer.id, integration.id, description, cents, fields.due_date, JSON.stringify(payload), Date.now()).first();
+      .bind(fields.request_id, accountId, customer.id, integration.id, description, cents, fields.due_date, JSON.stringify(payload), now).first();
     if (!created) return redirect(`${route}/${fields.request_id}`);
     await issue(context, created);
     return redirect(`${route}/${created.id}`);
@@ -262,22 +270,89 @@ export async function paymentRoutes(context) {
   return redirect(`${route}/${id}`);
 }
 
+async function orderReference(request, providerId) {
+  const reader = request.body?.getReader();
+  if (!reader) return null;
+  const decoder = new TextDecoder();
+  let length = 0;
+  let json = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > 64 * 1024) {
+        await reader.cancel();
+        return null;
+      }
+      json += decoder.decode(value, { stream: true });
+    }
+    const data = JSON.parse(json + decoder.decode()).data;
+    return typeof data?.id === 'string' && data.id.toUpperCase() === providerId && uuid.test(data.external_reference || '')
+      ? data.external_reference : null;
+  } catch {
+    return null;
+  }
+}
+
+async function orderWebhook(request, env, url, signedId, reply) {
+  const db = env.DB;
+  const providerId = signedId.toUpperCase();
+  const integrationId = url.pathname.split('/').at(-1);
+  const oauth = url.pathname === oauthWebhook;
+  if (!oauth && !uuid.test(integrationId)) return reply(400);
+  const authentic = async verify => await verify(request, signedId) ||
+    (signedId !== signedId.toLowerCase() && await verify(request, signedId.toLowerCase()));
+
+  let provider;
+  if (oauth) {
+    if (!await authentic((request, id) => verifySignature(request, id, env.MERCADO_PAGO_WEBHOOK_SECRET))) return reply(401);
+  } else {
+    const integration = await db.prepare('SELECT * FROM payment_integrations WHERE id=? AND oauth_collector_id IS NULL')
+      .bind(integrationId).first();
+    if (!integration) return reply(404);
+    provider = await paymentProvider(env, integration, 'orders');
+    if (!await authentic(provider.verify)) return reply(401);
+  }
+  const scope = oauth ? 'i.oauth_collector_id IS NOT NULL' : 'i.id=?';
+  const args = oauth ? [] : [integrationId];
+  const lookup = `SELECT c.* FROM charges c JOIN payment_integrations i ON i.id=c.integration_id
+    WHERE c.provider_api='orders' AND ${scope}`;
+  let charge = await db.prepare(lookup + ' AND c.provider_id=?').bind(...args, providerId).first();
+  if (!charge) {
+    const reference = await orderReference(request, providerId);
+    if (reference) {
+      charge = await db.prepare(lookup + ' AND c.id=? AND c.provider_id IS NULL').bind(...args, reference).first();
+    }
+  }
+  if (!charge) return reply(200);
+
+  // The body only locates a candidate. Confirm all data using its original integration.
+  provider ??= await chargeProvider(env, db, charge);
+  if (oauth && !await authentic(provider.verify)) return reply(401);
+  await saveProviderState(db, charge, provider, await provider.get(providerId), providerId);
+  return reply(200);
+}
+
 export async function paymentWebhook(request, env, url) {
   const integrationId = url.pathname.split('/').at(-1);
   const providerId = url.searchParams.get('data.id') || '';
   const reply = status => new Response(null, { status });
   if (request.method !== 'POST') return reply(405);
+  if (orderIdPattern.test(providerId.toUpperCase())) return orderWebhook(request, env, url, providerId, reply);
   if (!/^\d{1,24}$/.test(providerId)) return reply(400);
   if (url.pathname === oauthWebhook) {
-    if (!await verifySignature(request, providerId, env.MERCADO_PAGO_WEBHOOK_SECRET)) return reply(401);
+    if (!await verifySignature(request, providerId, env.MERCADO_PAGO_WEBHOOK_SECRET) &&
+        !await verifySignature(request, providerId, env.MERCADO_PAGO_LEGACY_WEBHOOK_SECRET)) return reply(401);
     const chargeId = url.searchParams.get('charge') || '';
     if (chargeId && !uuid.test(chargeId)) return reply(400);
     const charge = await env.DB.prepare(`SELECT c.* FROM charges c JOIN payment_integrations i ON i.id=c.integration_id
-      WHERE i.oauth_collector_id IS NOT NULL AND ${chargeId ? 'c.id=?' : 'c.provider_id=?'}`)
+      WHERE i.oauth_collector_id IS NOT NULL AND c.provider_api='payments' AND ${chargeId ? 'c.id=?' : 'c.provider_id=?'}`)
       .bind(chargeId || providerId).first();
     if (!charge) return reply(200);
     if (charge.provider_id && charge.provider_id !== providerId) return reply(400);
     const provider = await chargeProvider(env, env.DB, charge);
+    if (!await provider.verify(request, providerId)) return reply(401);
     await saveProviderState(env.DB, charge, provider, await provider.get(providerId), providerId);
     return reply(200);
   }
@@ -288,8 +363,8 @@ export async function paymentWebhook(request, env, url) {
   if (!await provider.verify(request, providerId)) return reply(401);
   const payment = await provider.get(providerId);
   if (!uuid.test(payment.external_reference || '')) return reply(200);
-  const charge = await env.DB.prepare('SELECT * FROM charges WHERE id=? AND account_id=? AND integration_id=?')
-    .bind(payment.external_reference, integration.account_id, integration.id).first();
+  const charge = await env.DB.prepare('SELECT * FROM charges WHERE id=? AND account_id=? AND integration_id=? AND provider_api=?')
+    .bind(payment.external_reference, integration.account_id, integration.id, 'payments').first();
   if (charge) await saveProviderState(env.DB, charge, provider, payment, providerId);
   return reply(200);
 }
