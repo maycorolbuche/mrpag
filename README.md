@@ -10,11 +10,12 @@ Requer Node.js 24 ou superior. Não precisa entrar na conta Cloudflare para test
 npm ci
 Copy-Item .dev.vars.example .dev.vars
 npm run db:migrate:local
-npm run db:seed:local
 npm start
 ```
 
-Abra **http://localhost:8787**. Usuário: `admin@mrpag.local`; senha: `MrPag@2026!Inicial`. A troca é obrigatória no primeiro acesso. Em `MAIL_MODE=log`, o link de recuperação aparece no terminal, somente em ambiente localhost. Este modo é bloqueado em domínio público.
+Abra **http://localhost:8787** e entre com o e-mail e a senha definidos em `SEED_EMAIL` e `SEED_PASSWORD` no `.dev.vars`. Se mantiver os valores do exemplo, use `admin@mrpag.local` e `MrPag@2026!Inicial`. O comando `db:migrate:local` cria o administrador quando a base estiver vazia, e a senha inicial deve ser trocada no primeiro acesso. Em `MAIL_MODE=log`, o link de recuperação aparece no terminal, somente em ambiente localhost. Este modo é bloqueado em domínio público.
+Se `SEED_EMAIL` ou `SEED_PASSWORD` estiver ausente no ambiente local, o seed usa o valor padrão correspondente. Um valor vazio ou inválido é rejeitado.
+
 
 `npm start` e `npm run dev` executam o Wrangler, com recarregamento automático, build de templates e assets. O estado local fica em `.wrangler/state`, separado do banco remoto. O antigo `.env` e `data/mrpag.sqlite` não são usados. Não exclua um banco anterior se quiser conservar seus dados.
 

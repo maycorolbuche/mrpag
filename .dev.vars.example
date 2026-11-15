@@ -1,6 +1,11 @@
 APP_URL=http://localhost:8787
 PASSWORD_PEPPER=development-only-change-this-secret-123456789
 MAIL_MODE=log
+
+# Administrador criado pela primeira migration em um banco local vazio.
+SEED_EMAIL=admin@mrpag.local
+SEED_PASSWORD="MrPag@2026!Inicial"
+
 # Para testar envio real localmente, use MAIL_MODE=resend e preencha:
 # RESEND_API_KEY=re_...
 # MAIL_FROM=MR Pag <acesso@seu-dominio.com.br>
