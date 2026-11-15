@@ -26,6 +26,7 @@ function present(charge) {
   return {
     ...charge, status, label: labels[status], amount: chargeMoney.format(charge.amount_cents / 100),
     date: displayDueDate(charge.due_date),
+    canCancel: status === 'pending' && !!charge.provider_id,
     canRetry: !charge.provider_id && Date.now() - charge.created_at <= maximumRetryAge,
   };
 }
@@ -135,16 +136,38 @@ async function saveProviderState(db, charge, provider, payment, expectedId) {
     paid_at=COALESCE(paid_at,?), pix_code=COALESCE(?,pix_code), pix_image=COALESCE(?,pix_image), creation_failure=NULL
     WHERE id=? AND account_id=? AND integration_id=? AND (provider_id IS NULL OR provider_id=?)
     AND provider_updated_at<=?
+    AND (status!='cancelled' OR ? IN ('cancelled','paid','refunded','charged_back'))
     AND (status NOT IN ('paid','refunded','charged_back') OR status=?
       OR (status='paid' AND ? IN ('refunded','charged_back')))`)
     .bind(id, status, timestamp, status === 'paid' ? paidAt : null,
-      code, image, charge.id, charge.account_id, charge.integration_id, id, timestamp, status, status).run();
+      code, image, charge.id, charge.account_id, charge.integration_id, id, timestamp, status, status, status).run();
+  return status;
 }
 
 async function chargeProvider(env, db, charge) {
   const integration = await db.prepare('SELECT * FROM payment_integrations WHERE id=? AND account_id=?')
     .bind(charge.integration_id, charge.account_id).first();
   return paymentProvider(env, integration, charge.provider_api);
+}
+
+async function cancelCharge(env, db, charge) {
+  const provider = await chargeProvider(env, db, charge);
+  const id = charge.provider_id;
+  try {
+    const result = await provider.cancel(id, charge.id);
+    const status = await saveProviderState(db, charge, provider, result, id);
+    if (status !== 'pending') return;
+    throw new Error('payment_provider_data_mismatch');
+  } catch (error) {
+    // The order may have been paid or cancelled while the request was in flight.
+    try {
+      const status = await saveProviderState(db, charge, provider, await provider.get(id), id);
+      if (status !== 'pending') return;
+    } catch {
+      // Report the original cancellation failure if reconciliation also fails.
+    }
+    throw error;
+  }
 }
 
 function paymentFailure(error) {
@@ -258,7 +281,7 @@ export async function paymentRoutes(context) {
     await issue(context, created);
     return redirect(`${route}/${created.id}`);
   }
-  const [, id, action] = url.pathname.match(/^\/charges\/([a-f0-9-]+)(?:\/(retry|refresh|email))?$/) || [];
+  const [, id, action] = url.pathname.match(/^\/charges\/([a-f0-9-]+)(?:\/(retry|refresh|email|cancel))?$/) || [];
   if (!uuid.test(id || '')) return null;
   const charge = await db.prepare(`SELECT c.*,u.name AS customer_name,u.email AS customer_email FROM charges c
     JOIN customers u ON u.id=c.customer_id AND u.account_id=c.account_id WHERE c.id=? AND c.account_id=?`).bind(id, accountId).first();
@@ -280,6 +303,13 @@ export async function paymentRoutes(context) {
   if (action === 'retry') await issue(context, charge);
   if (action === 'email' && uuid.test(body.mail_request_id || '')) {
     await queueManualChargeEmail(db, charge, body.mail_request_id, actorEmail);
+  }
+  if (action === 'cancel' && present(charge).canCancel) {
+    try {
+      await cancelCharge(env, db, charge);
+    } catch (error) {
+      return detail(`O cancelamento não foi confirmado. ${paymentFailureMessage(paymentFailure(error))}`, 502);
+    }
   }
   if (action === 'refresh' && charge.provider_id) {
     try {

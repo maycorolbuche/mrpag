@@ -163,6 +163,20 @@ export async function paymentProvider(env, integration, api = 'payments') {
       if (!idPattern.test(id)) throw new Error('invalid_provider_payment_id');
       return requestMercadoPago(credentials.token, `${endpoint}/${id}`);
     },
+    cancel(id, chargeId) {
+      if (!idPattern.test(id)) throw new Error('invalid_provider_payment_id');
+      if (orders) {
+        return requestMercadoPago(credentials.token, `${endpoint}/${id}/cancel`, {
+          method: 'POST',
+          headers: { 'X-Idempotency-Key': `cancel-${chargeId}` },
+        });
+      }
+      return requestMercadoPago(credentials.token, `${endpoint}/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled' }),
+      });
+    },
     verify(request, id) {
       return verifySignature(request, id, webhookSecret);
     },

@@ -24,6 +24,16 @@
     <% } else { %>
       <p>Confira no painel do Mercado Pago se a emissão foi concluída antes de criar outra cobrança.</p>
     <% } %>
+    <% if (charge.canCancel) { %>
+      <details class="mt-3">
+        <summary>Cancelar cobrança</summary>
+        <form method="post" action="/charges/<%= charge.id %>/cancel" class="mt-2">
+          <input type="hidden" name="_csrf" value="<%= csrf %>">
+          <p>O MR Pag vai solicitar o cancelamento ao Mercado Pago. Depois da confirmação, o Pix deixa de aparecer no link de pagamento.</p>
+          <button class="btn btn-outline-danger" type="submit">Confirmar cancelamento</button>
+        </form>
+      </details>
+    <% } %>
   </section>
   <%- include('charge-pix') %>
 </div>
