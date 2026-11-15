@@ -64,10 +64,10 @@ A integração por Access Token continua disponível em **Configuração manual*
 
 ## Link de pagamento e envio por e-mail
 
-Novas cobranças com Pix disponível entram na fila de e-mail automaticamente. O Worker processa a fila a cada cinco minutos usando `MAIL_MODE=resend`, `RESEND_API_KEY` e `MAIL_FROM`. Use um remetente autorizado no Resend. O modo local `log` continua disponível para redefinição de senha. O envio de cobranças roda apenas com o Resend configurado.
+Novas cobranças com Pix disponível entram na fila de e-mail automaticamente. O Worker processa a fila a cada cinco minutos com o provedor definido em `MAIL_MODE`. O MR Pag aceita SMTP seguro da HostGator ou Resend. Veja como [configurar o envio de e-mails](CLOUDFLARE.md#enviar-pelo-smtp-do-cpanel-da-hostgator). O modo local `log` continua disponível para redefinição de senha.
 
 Na tela da cobrança, copie o **Link de pagamento** ou use **Enviar por e-mail**. O link pode ser aberto sem login e mostra a situação da cobrança. Após a baixa, o cliente pode atualizar a página para ver **Paga**. Cobranças antigas já emitidas ficam disponíveis para compartilhamento e envio manual. A atualização do Worker não dispara e-mails retroativos.
 
-O histórico mostra o destinatário, cada tentativa e a resposta do serviço. **Aceito pelo serviço de e-mail** indica aceitação pelo Resend. Falhas temporárias são repetidas automaticamente. Se houver uma falha definitiva, corrija a causa e use **Enviar novamente por e-mail**.
+O histórico mostra o destinatário, cada tentativa e a resposta do serviço. **Aceito pelo serviço de e-mail** indica que o provedor recebeu a mensagem para envio. Falhas temporárias são repetidas automaticamente. Se houver uma falha definitiva, corrija a causa e use **Enviar novamente por e-mail**.
 
 Cada e-mail de cobrança inclui uma cópia oculta para o usuário que emitiu o Pix ou solicitou o reenvio. O MR Pag registra esse endereço ao agendar o e-mail, para que o envio automático e as novas tentativas usem o mesmo destinatário.

@@ -52,7 +52,7 @@ O Cron diário remove sessões, tokens e contadores expirados. A validade també
 - `MAIL_MODE=log`: teste exclusivamente local, com link no terminal.
 - `MAIL_MODE=resend`: envio real via HTTPS usando `RESEND_API_KEY` e `MAIL_FROM`.
 
-A resposta da recuperação é genérica para e-mail existente/desconhecido e falhas do provedor. Um erro de envio invalida o token gerado e registra somente um código de erro. Não há envio SMTP/Nodemailer nesta versão.
+A resposta da recuperação é genérica para e-mail existente/desconhecido e falhas do provedor. Um erro de envio invalida o token gerado e registra somente um código de erro. Veja a [configuração do envio por SMTP ou Resend](docs/CLOUDFLARE.md#enviar-pelo-smtp-do-cpanel-da-hostgator).
 
 ## Validação
 
