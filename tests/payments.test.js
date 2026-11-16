@@ -232,15 +232,9 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   await configure(f);
   await Promise.all([createCharge(f), createCharge(f)]);
   const worker = await f.mf.getWorker();
-  for (const hour of ['03:00', '10:59', '13:00']) {
-    await runChargeCron(worker, hour);
-  }
-  assert.equal(f.messages.length, 0);
-  assert.deepEqual(await f.db.prepare('SELECT status,attempt_count FROM charge_emails').first(),
-    { status: 'queued', attempt_count: 0 });
   // The cron has no session and must use the address captured at issuance.
   await f.db.prepare("UPDATE users SET email='operator@example.com' WHERE id=1").run();
-  const run = () => runChargeCron(worker);
+  const run = () => runChargeCron(worker, '03:00');
   await Promise.all([run(), run()]);
   assert.equal(f.messages.length, 1);
   assert.equal(keys[0], 'initial/' + chargeId);
@@ -421,7 +415,13 @@ test('recorrência gera uma cobrança por ciclo, reutiliza e-mail e permite edit
   assert.equal((await f.db.prepare('SELECT count(*) AS n FROM charges').first()).n, 0);
 
   await post(f.agent, path, path + '/resume', {});
-  await Promise.all([run(), run()]);
+  await Promise.all([runChargeCron(worker, '03:00'), runChargeCron(worker, '03:00')]);
+  for (const hour of ['10:59', '13:00']) {
+    await runChargeCron(worker, hour);
+    assert.equal(f.messages.length, 0);
+    assert.deepEqual(await f.db.prepare('SELECT status,attempt_count FROM charge_emails').first(),
+      { status: 'queued', attempt_count: 0 });
+  }
   await run();
   const charge = await f.db.prepare('SELECT id,amount_cents,due_date,recurring_series_id FROM charges').first();
   assert.equal(charge.recurring_series_id, id);
