@@ -29,19 +29,22 @@ function decorate(row) {
     amount: chargeMoney.format(row.amount_cents / 100), due: displayDueDate(row.next_due_date) };
 }
 
+export async function listRecurringCharges(db, accountId, offset) {
+  const { results } = await db.prepare(`SELECT r.*,u.name AS customer_name,
+    EXISTS (SELECT 1 FROM charges c WHERE c.recurring_series_id=r.id AND c.provider_id IS NULL
+      AND c.status IN ('creating','creation_error') AND c.created_at<?) AS emission_review
+    FROM charge_recurring_series r
+    JOIN customers u ON u.id=r.customer_id AND u.account_id=r.account_id WHERE r.account_id=?
+    ORDER BY r.status='ended',r.next_issue_date,r.id LIMIT 26 OFFSET ?`).bind(Date.now() - maximumRetryAge, accountId, offset).all();
+  return results.map(decorate);
+}
+
 export async function recurringRoutes({ request, url, db, accountId, actorEmail, body, show, redirect }) {
   const path = url.pathname;
   const today = businessDate(new Date());
   if (path === root && request.method === 'GET') {
-    const offset = Math.max(0, Math.min(100000, ((parseInt(url.searchParams.get('page'), 10) || 1) - 1) * 25));
-    const { results } = await db.prepare(`SELECT r.*,u.name AS customer_name,
-      EXISTS (SELECT 1 FROM charges c WHERE c.recurring_series_id=r.id AND c.provider_id IS NULL
-        AND c.status IN ('creating','creation_error') AND c.created_at<?) AS emission_review
-      FROM charge_recurring_series r
-      JOIN customers u ON u.id=r.customer_id AND u.account_id=r.account_id WHERE r.account_id=?
-      ORDER BY r.status='ended',r.next_issue_date,r.id LIMIT 26 OFFSET ?`).bind(Date.now() - maximumRetryAge, accountId, offset).all();
-    return show('recurring-list', { seriesRows: results.slice(0, 25).map(decorate),
-      chargePage: offset / 25 + 1, nextPage: results.length > 25 });
+    const page = url.searchParams.get('page');
+    return redirect('/charges' + (page ? '?' + new URLSearchParams({ recurringPage: page }) : '') + '#recorrentes');
   }
 
   const [, id, action] = path.match(/^\/charges\/recurring\/([a-f0-9-]+)(?:\/(pause|resume|end))?$/) || [];

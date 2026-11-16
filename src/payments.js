@@ -281,18 +281,19 @@ export async function publicPayment(db, publicToken) {
   return charge ? present(charge) : null;
 }
 
+export async function listOneOffCharges(db, accountId, offset) {
+  const { results } = await db.prepare(`SELECT c.id,c.amount_cents,c.description,c.status,c.due_date,u.name AS customer_name
+    FROM charges c JOIN customers u ON u.id=c.customer_id AND u.account_id=c.account_id
+    WHERE c.account_id=? AND c.recurring_series_id IS NULL
+    ORDER BY c.created_at DESC,c.id DESC LIMIT 26 OFFSET ?`).bind(accountId, offset).all();
+  return results.map(present);
+}
+
 export async function paymentRoutes(context) {
   const { request, url, db, env, accountId, actorEmail, origin, body, show, redirect } = context;
   if (url.pathname === oauthConnect && request.method === 'POST') return startMercadoPagoOAuth(context);
   if (url.pathname === oauthCallback && request.method === 'GET') return finishMercadoPagoOAuth(context);
   if (url.pathname === '/account/payments') return integrationSettings(context);
-  if (url.pathname === route && request.method === 'GET') {
-    const offset = Math.min(100000, Math.max(0, (parseInt(url.searchParams.get('page'), 10) || 1) - 1) * 25);
-    const rows = await db.prepare(`SELECT c.id,c.amount_cents,c.description,c.status,c.due_date,u.name AS customer_name
-      FROM charges c JOIN customers u ON u.id=c.customer_id AND u.account_id=c.account_id
-      WHERE c.account_id=? ORDER BY c.created_at DESC,c.id DESC LIMIT 26 OFFSET ?`).bind(accountId, offset).all();
-    return show('charges', { charges: rows.results.slice(0, 25).map(present), chargePage: offset / 25 + 1, nextPage: rows.results.length > 25 });
-  }
   if ((url.pathname === `${route}/new` && request.method === 'GET') || (url.pathname === route && request.method === 'POST')) {
     const integration = await currentIntegration(db, accountId);
     const customers = await db.prepare(`SELECT id,name FROM customers WHERE account_id=? AND active=1

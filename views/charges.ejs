@@ -1,15 +1,16 @@
 <%- include('header', {title:'Cobranças'}) %>
 <div class="page-heading">
-  <div><h1 class="workspace-title">Cobranças</h1></div>
-  <div class="d-flex flex-wrap gap-2">
-    <a class="btn btn-light" href="/charges/recurring">Recorrências</a>
-    <a class="btn btn-light" href="/account/payments">Integrações</a>
-    <a class="btn btn-primary" href="/charges/new">Nova cobrança</a>
-  </div>
+  <h1 class="workspace-title">Cobranças</h1>
+  <a class="btn btn-light" href="/account/payments">Integrações</a>
 </div>
-<section class="settings-card">
+<%- include('recurring-list') %>
+<section class="settings-card" id="avulsas" aria-labelledby="one-off-title">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <h2 class="h4 mb-0" id="one-off-title">Cobranças Avulsas</h2>
+    <a class="btn btn-primary" href="/charges/new">Nova Cobrança Avulsa</a>
+  </div>
   <% if (!charges.length) { %>
-    <p class="mb-0 text-secondary">Nenhuma cobrança nesta página.</p>
+    <p class="mb-0 text-secondary">Nenhuma cobrança avulsa nesta página.</p>
   <% } else { %>
     <div class="table-responsive">
       <table class="table align-middle">
@@ -22,9 +23,11 @@
       </table>
     </div>
   <% } %>
-  <nav class="d-flex gap-3" aria-label="Paginação de cobranças">
-    <% if (chargePage > 1) { %><a href="/charges?page=<%= chargePage - 1 %>">Anterior</a><% } %>
-    <% if (nextPage) { %><a href="/charges?page=<%= chargePage + 1 %>">Próxima</a><% } %>
-  </nav>
+  <% if (chargePage > 1 || nextPage) { %>
+    <nav class="d-flex gap-2" aria-label="Paginação de cobranças avulsas">
+      <% if (chargePage > 1) { %><a class="btn btn-light" href="/charges?page=<%= chargePage - 1 %>&amp;recurringPage=<%= recurringPage %>#avulsas">Anterior</a><% } %>
+      <% if (nextPage) { %><a class="btn btn-light" href="/charges?page=<%= chargePage + 1 %>&amp;recurringPage=<%= recurringPage %>#avulsas">Próxima</a><% } %>
+    </nav>
+  <% } %>
 </section>
 </main></body></html>
