@@ -17,7 +17,7 @@ test('envia um modelo de cobrança sem salvar as preferências', async ({ page }
     await page.getByRole('button', { name: 'Enviar teste: No dia do vencimento' }).click();
     await expect(page.getByRole('status')).toContainText('E-mail de teste aceito');
     expect(messages).toHaveLength(1);
-    expect(messages[0].subject).toBe('[Teste] Cobrança vence hoje — MR Pag');
+    expect(messages[0].subject).toBe('[Teste] Aviso de vencimento: sua cobrança vence hoje — MR Pag');
     expect(messages[0].html).toContain('E-mail de teste');
     await expect(page.getByLabel('No dia do vencimento', { exact: true })).not.toBeChecked();
   } finally {
