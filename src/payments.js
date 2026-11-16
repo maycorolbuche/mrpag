@@ -242,9 +242,15 @@ export function insertPixCharge(db, env, { id, accountId, integrationId, custome
     throw new Error('MERCADO_PAGO_PAYER_EMAIL_DOMAIN deve conter apenas um domínio válido.');
   }
   const payerEmail = domain ? customer.email.slice(0, customer.email.lastIndexOf('@') + 1) + domain : customer.email;
+  const [firstName, ...surname] = customer.name.trim().split(/\s+/);
   const payload = pixOrderPayload({
     id, description, cents, dueDate, now,
-    payer: { email: payerEmail, identification: { type: customer.document.length === 11 ? 'CPF' : 'CNPJ', number: customer.document } },
+    payer: {
+      email: payerEmail,
+      first_name: firstName,
+      ...(surname.length ? { last_name: surname.join(' ') } : {}),
+      identification: { type: customer.document.length === 11 ? 'CPF' : 'CNPJ', number: customer.document },
+    },
   });
   const values = "?,?,?,?,?,?,?,?,?,'orders',?,1,?,?,?";
   const args = [id, accountId, customer.id, integrationId, description, cents, dueDate, JSON.stringify(payload), now,
@@ -252,9 +258,9 @@ export function insertPixCharge(db, env, { id, accountId, integrationId, custome
   const source = series
     ? `SELECT ${values} FROM charge_recurring_series r JOIN customers u ON u.id=r.customer_id AND u.account_id=r.account_id
       WHERE r.id=? AND r.account_id=? AND r.revision=? AND r.status='active'
-        AND r.next_due_date=? AND u.active=1 AND u.email=? AND u.document=?`
+        AND r.next_due_date=? AND u.active=1 AND u.email=? AND u.document=? AND u.name=?`
     : `VALUES (${values})`;
-  if (series) args.push(series.id, accountId, series.revision, series.next_due_date, customer.email, customer.document);
+  if (series) args.push(series.id, accountId, series.revision, series.next_due_date, customer.email, customer.document, customer.name);
   return db.prepare(`INSERT INTO charges(id,account_id,customer_id,integration_id,
     description,amount_cents,due_date,provider_payload,created_at,provider_api,public_token,auto_email,issuer_email,recurring_series_id,notification_email)
     ${source} ON CONFLICT DO NOTHING RETURNING *`).bind(...args);

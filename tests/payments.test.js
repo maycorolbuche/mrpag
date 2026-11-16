@@ -51,6 +51,8 @@ async function setup(t, { origin, mailApi, bindings = {}, expectedPayer = 'pix@e
           assert.equal(payload.total_amount, '49.90');
           assert.equal(payload.notification_url, undefined);
           assert.equal(payload.payer.email, expectedPayer);
+          assert.equal(payload.payer.first_name, 'João');
+          assert.equal(payload.payer.last_name, 'da Silva Neto');
           const pix = payload.transactions.payments[0];
           assert.equal(pix.amount, payload.total_amount);
           assert.match(pix.expiration_time, /^P\d+DT\d+H\d+M\d+S$/);
@@ -76,7 +78,7 @@ async function setup(t, { origin, mailApi, bindings = {}, expectedPayer = 'pix@e
   await f.db.prepare('UPDATE users SET must_change=0').run();
   await login(f.agent);
   await f.db.prepare(`INSERT INTO customers(account_id,name,person_type,document,email,created_at,updated_at)
-    VALUES (1,'Cliente Pix','person','52998224725','pix@example.com',0,0)`).run();
+    VALUES (1,'João da Silva Neto','person','52998224725','pix@example.com',0,0)`).run();
   return {
     ...f, calls,
     failFirst(status) { failureStatus = status; },
@@ -251,7 +253,7 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   assert.match(page.headers.get('x-robots-tag'), /noindex/);
   assert.match(page.text, /codigo-pix-de-teste/);
   assert.match(page.text, /<dt>Descrição<\/dt><dd>Cobrança de teste<\/dd>/);
-  assert.doesNotMatch(page.text, /pix@example.com|52998224725|Cliente Pix/);
+  assert.doesNotMatch(page.text, /pix@example.com|52998224725|João da Silva Neto/);
   const statusUrl = url.pathname + '/status';
   const statusPage = await publicAgent.request(statusUrl);
   assert.equal(statusPage.status, 200);
