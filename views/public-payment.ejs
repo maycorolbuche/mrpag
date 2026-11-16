@@ -4,32 +4,50 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Cobrança Pix · MR Pag</title>
+  <link rel="icon" href="/assets/favicon.svg">
   <link rel="stylesheet" href="/assets/bootstrap/bootstrap.min.css">
   <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/payment.css">
   <% if (charge?.status === 'pending') { %><script src="/assets/payment-status.js" defer></script><% } %>
 </head>
-<body class="workspace-body">
-<main class="workspace-main">
+<body class="payment-page">
+<header class="payment-brand">
+  <img src="/assets/favicon.svg" width="36" height="36" alt="">
+  <span>MR <strong>Pag</strong></span>
+</header>
+<main class="payment-main">
   <% if (charge) { %>
-    <h1 class="workspace-title">Cobrança Pix</h1>
-    <div class="settings-grid">
-      <section class="settings-card">
-        <dl class="customer-data">
-          <div><dt>Recebedor</dt><dd class="text-break"><%= charge.issuer %></dd></div>
-          <div><dt>Valor</dt><dd><%= charge.amount %></dd></div>
-          <div><dt>Vencimento</dt><dd><%= charge.date %></dd></div>
-          <div><dt>Situação</dt><dd><strong><%= charge.label %></strong></dd></div>
-        </dl>
-        <% if (charge.status === 'pending') { %>
-          <p>A situação é atualizada automaticamente após a confirmação do Pix.</p>
-          <a class="btn btn-light" href="">Atualizar situação</a>
-        <% } %>
+    <% const hasPix = charge.status === 'pending' && (charge.pix_image || charge.pix_code); %>
+    <div class="payment-layout<%= hasPix ? ' payment-layout--pix' : '' %>">
+      <section class="payment-summary" aria-labelledby="payment-title">
+        <div class="payment-summary__hero">
+          <h1 id="payment-title">Cobrança Pix</h1>
+          <p class="payment-amount"><%= charge.amount %></p>
+          <p class="payment-status payment-status--<%= charge.status %>">
+            <span class="visually-hidden">Situação: </span><span class="payment-status__dot" aria-hidden="true"></span><strong><%= charge.label %></strong>
+          </p>
+        </div>
+        <div class="payment-summary__details">
+          <dl class="payment-details">
+            <div class="payment-details__description"><dt>Descrição</dt><dd><%= charge.description %></dd></div>
+            <div><dt>Recebedor</dt><dd><%= charge.issuer %></dd></div>
+            <div><dt>Vencimento</dt><dd><%= charge.date %></dd></div>
+          </dl>
+          <% if (charge.status === 'pending') { %>
+            <div class="payment-update">
+              <p>A situação é atualizada automaticamente após a confirmação do Pix.</p>
+              <a href="">Atualizar situação</a>
+            </div>
+          <% } %>
+        </div>
       </section>
       <%- include('charge-pix') %>
     </div>
   <% } else { %>
-    <h1 class="workspace-title">Cobrança não encontrada</h1>
-    <p>Confira o link recebido.</p>
+    <section class="payment-empty">
+      <h1>Cobrança não encontrada</h1>
+      <p>Confira o link recebido.</p>
+    </section>
   <% } %>
 </main>
 </body>

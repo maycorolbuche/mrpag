@@ -269,7 +269,7 @@ export async function publicPaymentStatus(db, publicToken) {
 
 export async function publicPayment(db, publicToken) {
   if (!/^[a-f0-9]{64}$/.test(publicToken)) return null;
-  const charge = await db.prepare(`SELECT c.amount_cents,c.due_date,c.status,c.pix_code,c.pix_image,a.name AS issuer
+  const charge = await db.prepare(`SELECT c.description,c.amount_cents,c.due_date,c.status,c.pix_code,c.pix_image,a.name AS issuer
     FROM charges c JOIN accounts a ON a.id=c.account_id
     WHERE c.public_token=? AND c.provider_id IS NOT NULL`).bind(publicToken).first();
   return charge ? present(charge) : null;
