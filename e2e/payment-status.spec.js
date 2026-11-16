@@ -14,13 +14,22 @@ test('a página de pagamento aberta se atualiza automaticamente após a baixa', 
         VALUES ('integration',1,'mercado-pago','{}',0)`),
       db.prepare(`INSERT INTO charges(id,account_id,customer_id,integration_id,description,amount_cents,
         due_date,provider_payload,provider_id,status,pix_code,created_at,public_token)
-        VALUES (?,1,1,'integration','Cobrança',1000,?,'{}','321','pending','pix-deteste',0,?)`)
+        VALUES (?,1,1,'integration','Mensalidade de suporte & manutenção',1000,?,'{}','321','pending','pix-deteste',0,?)`)
         .bind(chargeId, due, token),
     ]);
     const url = (await mf.ready).origin + '/pay/' + token;
     await page.goto(url);
     await expect(page.getByText('Aguardando pagamento')).toBeVisible();
     await expect(page.getByLabel('Pix copia e cola')).toHaveValue('pix-deteste');
+    await expect(page.getByText('Mensalidade de suporte & manutenção')).toBeVisible();
+    await expect(page.locator('.payment-layout')).toHaveCSS('display', 'grid');
+    const summary = page.locator('.payment-summary');
+    const pix = page.getByRole('heading', { name: 'Pix', exact: true });
+    expect((await pix.boundingBox()).x).toBeGreaterThan((await summary.boundingBox()).x);
+    await page.setViewportSize({ width: 320, height: 760 });
+    await expect(pix).toBeVisible();
+    expect((await pix.boundingBox()).y).toBeGreaterThan((await summary.boundingBox()).y);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
 
     const pending = await page.waitForResponse(response => response.url() === url + '/status');
     expect(await pending.json()).toEqual({ status: 'pending' });
@@ -29,6 +38,7 @@ test('a página de pagamento aberta se atualiza automaticamente após a baixa', 
     await db.prepare("UPDATE charges SET status='paid' WHERE id=?").bind(chargeId).run();
     await expect(page.getByText('Paga', { exact: true })).toBeVisible({ timeout: 10000 });
     await expect(page.getByLabel('Pix copia e cola')).toHaveCount(0);
+    await expect(page.getByText('Mensalidade de suporte & manutenção')).toBeVisible();
   } finally {
     await mf.dispose();
   }

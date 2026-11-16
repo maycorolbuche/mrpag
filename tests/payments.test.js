@@ -250,6 +250,7 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
   assert.match(page.headers.get('x-robots-tag'), /noindex/);
   assert.match(page.text, /codigo-pix-de-teste/);
+  assert.match(page.text, /<dt>Descrição<\/dt><dd>Cobrança de teste<\/dd>/);
   assert.doesNotMatch(page.text, /pix@example.com|52998224725|Cliente Pix/);
   const statusUrl = url.pathname + '/status';
   const statusPage = await publicAgent.request(statusUrl);
