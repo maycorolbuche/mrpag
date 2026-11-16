@@ -36,6 +36,8 @@ export async function sendRecovery(env, { email, url }) {
   return sendEmail(env, { email, subject: 'Redefina sua senha — MR Pag', text, html });
 }
 
+export const chargeEmailLayoutVersion = 2;
+
 const chargeMessages = {
   charge: {
     title: 'Cobrança Pix', badge: 'Aguardando pagamento',
@@ -75,9 +77,10 @@ const legacyIntroductions = {
   confirmation: 'Seu pagamento Pix foi confirmado.',
 };
 
-export function sendChargeEmail(env, { email, bcc, url, amount, dueDate, purpose, idempotencyKey, beforeSmtpData, preview = false, layoutVersion = 1 }) {
+export function sendChargeEmail(env, { email, bcc, url, amount, dueDate, description, purpose, idempotencyKey, beforeSmtpData, preview = false, layoutVersion = chargeEmailLayoutVersion }) {
   const message = chargeMessages[purpose];
-  const details = `Valor: ${amount}\nVencimento: ${dueDate}`;
+  const displayedDescription = layoutVersion >= 2 ? description : null;
+  const details = `${displayedDescription ? `Descrição: ${displayedDescription}\n` : ''}Valor: ${amount}\nVencimento: ${dueDate}`;
   if (layoutVersion === 0) {
     const text = `${legacyIntroductions[purpose]}\n\n${details}\n\nConsulte a cobrança:\n${url}`;
     return sendEmail(env, { email, bcc, subject: `${message.title} — MR Pag`, text, idempotencyKey, beforeSmtpData });
@@ -85,7 +88,7 @@ export function sendChargeEmail(env, { email, bcc, url, amount, dueDate, purpose
   const text = preview
     ? `E-MAIL DE TESTE — dados fictícios\n\n${message.introduction}\n\n${details}`
     : `${message.introduction}\n\n${details}\n\n${message.action}:\n${url}`;
-  const html = emailLayout({ ...message, amount, dueDate, url, preview });
+  const html = emailLayout({ ...message, amount, dueDate, description: displayedDescription, url, preview });
   const subject = `${preview ? '[Teste] ' : ''}${message.title} — MR Pag`;
   return sendEmail(env, { email, bcc, subject, text, html, idempotencyKey, beforeSmtpData });
 }

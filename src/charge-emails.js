@@ -1,4 +1,4 @@
-import { sendChargeEmail } from './mail.js';
+import { chargeEmailLayoutVersion, sendChargeEmail } from './mail.js';
 
 export const businessDate = date => new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo' }).format(date);
 export const chargeMoney = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -45,7 +45,7 @@ async function deliver(env, origin, id, refreshPayment) {
   const db = env.DB;
   const now = Date.now();
   const job = await db.prepare(`UPDATE charge_emails SET status='sending',lease_until=?,
-    layout_version=CASE WHEN attempt_count=0 THEN 1 ELSE layout_version END,attempt_count=attempt_count+1
+    layout_version=CASE WHEN attempt_count=0 THEN ${chargeEmailLayoutVersion} ELSE layout_version END,attempt_count=attempt_count+1
     WHERE id=? AND status IN ('queued','sending') AND next_at<=? AND lease_until<=?
     AND NOT EXISTS (SELECT 1 FROM charge_email_attempts a WHERE a.email_id=charge_emails.id
       AND a.number=charge_emails.attempt_count AND a.result='smtp_data_started')
@@ -60,7 +60,7 @@ async function deliver(env, origin, id, refreshPayment) {
   }
 
   const readCharge = () => db.prepare(`SELECT id,account_id,integration_id,provider_api,provider_id,
-    status,due_date,amount_cents,public_token FROM charges WHERE id=?`).bind(job.charge_id).first();
+    status,due_date,amount_cents,description,public_token FROM charges WHERE id=?`).bind(job.charge_id).first();
   let charge = await readCharge();
   const reminder = job.purpose !== 'charge' && job.purpose !== 'confirmation';
   const today = businessDate(new Date(now));
@@ -104,7 +104,7 @@ async function deliver(env, origin, id, refreshPayment) {
     }
     await sendChargeEmail(env, {
       email: job.recipient, bcc: job.bcc, purpose: job.purpose, layoutVersion: job.layout_version, url: paymentLink(origin, charge.public_token),
-      amount: chargeMoney.format(charge.amount_cents / 100),
+      amount: chargeMoney.format(charge.amount_cents / 100), description: charge.description,
       dueDate: displayDueDate(charge.due_date), idempotencyKey: job.id,
       async beforeSmtpData() {
         const marked = await db.prepare(`UPDATE charge_email_attempts SET result='smtp_data_started'
