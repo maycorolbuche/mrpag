@@ -1,11 +1,11 @@
 import { notificationSettings, queueChargeReminders } from './charge-notifications.js';
-import { dispatchRecurringCharges, recurringRoutes } from './recurring-charges.js';
+import { dispatchRecurringCharges, listRecurringCharges, recurringRoutes } from './recurring-charges.js';
 import { dispatchChargeEmails } from './charge-emails.js';
 import { render } from './generated/templates.js';
 import { token, digest, hashPassword, verifyPassword, passwordError, limited } from './security.js';
 import { mailSendingEnabled, sendRecovery } from './mail.js';
 import { customerRoutes } from './customers.js';
-import { paymentRoutes, paymentWebhook, publicPayment, publicPaymentStatus, refreshChargePayment } from './payments.js';
+import { listOneOffCharges, paymentRoutes, paymentWebhook, publicPayment, publicPaymentStatus, refreshChargePayment } from './payments.js';
 
 const generic = 'Se o e-mail estiver cadastrado, você receberá um link para redefinir sua senha.';
 const dummy = `pbkdf2-sha256:100000:${'0'.repeat(64)}:${'0'.repeat(64)}`;
@@ -171,6 +171,19 @@ async function handle(request, env) {
   }
   if (path === '/account/notifications') {
     return notificationSettings({ request, url, env, db, accountId: user.account_id, actorEmail: user.email, body, show, redirect });
+  }
+  if (path === '/charges' && request.method === 'GET') {
+    const pageNumber = key => Math.min(4001, Math.max(1, parseInt(url.searchParams.get(key), 10) || 1));
+    const chargePage = pageNumber('page');
+    const recurringPage = pageNumber('recurringPage');
+    const [charges, series] = await Promise.all([
+      listOneOffCharges(db, user.account_id, (chargePage - 1) * 25),
+      listRecurringCharges(db, user.account_id, (recurringPage - 1) * 25),
+    ]);
+    return show('charges', {
+      charges: charges.slice(0, 25), chargePage, nextPage: charges.length > 25 && chargePage < 4001,
+      seriesRows: series.slice(0, 25), recurringPage, nextRecurringPage: series.length > 25 && recurringPage < 4001,
+    });
   }
   if (isPaymentRoute) {
     const context = { request, url, db, env, accountId: user.account_id, actorEmail: user.email, origin: config.origin, sessionHash, body, show, redirect };

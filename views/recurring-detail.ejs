@@ -1,5 +1,5 @@
 <%- include('header', {title:recurringSeries ? 'Detalhe da recorrência' : 'Nova recorrência'}) %>
-<a class="back-link" href="/charges/recurring">← Recorrências</a>
+<a class="back-link" href="/charges#recorrentes">← Cobranças Recorrentes</a>
 <h1 class="workspace-title"><%= recurringSeries ? recurringSeries.description : 'Nova recorrência' %></h1>
 <% if (error) { %><div class="alert alert-danger" role="alert"><%= error %></div><% } %>
 <% if (recurringWarning) { %><p class="alert alert-warning"><%= recurringWarning %></p><% } %>

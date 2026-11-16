@@ -406,7 +406,7 @@ test('recorrência gera uma cobrança por ciclo, reutiliza e-mail e permite edit
     interval_months: '2', first_due: due, lead_days: '5' };
   assert.equal((await post(f.agent, root + '/new', root, { ...fields, interval_months: '3' })).status, 422);
   assert.equal((await post(f.agent, root + '/new', root, fields)).headers.get('location'), root + '/' + id);
-  assert.match((await f.agent.request(root)).text, /Bimestral/);
+  assert.match((await f.agent.request('/charges')).text, /Bimestral/);
   const path = root + '/' + id;
   const worker = await f.mf.getWorker();
   const run = () => worker.scheduled({ cron: '*/5 * * * *' });
@@ -429,6 +429,13 @@ test('recorrência gera uma cobrança por ciclo, reutiliza e-mail e permite edit
   assert.match(f.messages[0].html, /Mensalidade/);
   assert.match((await f.agent.request(path)).text, new RegExp('/charges/' + charge.id));
   assert.match((await f.agent.request('/charges/' + charge.id)).text, /Ver série/);
+  await createCharge(f);
+  const listing = (await f.agent.request('/charges')).text;
+  assert.match(listing, /Cobranças Recorrentes[\s\S]*Cobranças Avulsas/);
+  assert.ok(listing.includes('/charges/recurring/' + id));
+  assert.ok(listing.includes('/charges/' + chargeId));
+  assert.ok(!listing.includes('/charges/' + charge.id));
+  assert.equal((await f.agent.request(root + '?page=2')).headers.get('location'), '/charges?recurringPage=2#recorrentes');
   const expected = new Date(due + 'T12:00:00Z');
   const day = expected.getUTCDate();
   expected.setUTCDate(1);
@@ -445,7 +452,7 @@ test('recorrência gera uma cobrança por ciclo, reutiliza e-mail e permite edit
   await post(f.agent, '/charges/new', path + '/resume', {});
   assert.equal((await f.db.prepare('SELECT status FROM charge_recurring_series').first()).status, 'ended');
   await f.db.prepare("UPDATE charges SET status='creation_error',provider_id=NULL,created_at=0 WHERE id=?").bind(charge.id).run();
-  assert.match((await f.agent.request(root)).text, /Emissão a conferir/);
+  assert.match((await f.agent.request('/charges')).text, /Emissão a conferir/);
   assert.match((await f.agent.request(path)).text, /Confira a emissão no Mercado Pago/);
 });
 
@@ -464,7 +471,7 @@ test('recorrências aceitam os quatro intervalos e preservam a referência ao aj
     });
     assert.equal(response.status, 303);
   }
-  const listing = await f.agent.request(root);
+  const listing = await f.agent.request('/charges');
   for (const label of ['Mensal', 'Bimestral', 'Semestral', 'Anual']) assert.match(listing.text, new RegExp('>' + label + '<'));
   // An annual February cycle keeps the day-31 reference and uses the last available day.
   const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo' }).format(new Date());

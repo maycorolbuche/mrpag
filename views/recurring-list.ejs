@@ -1,10 +1,8 @@
-<%- include('header', {title:'Recorrências'}) %>
-<a class="back-link" href="/charges">← Cobranças</a>
-<div class="page-heading">
-  <h1 class="workspace-title">Recorrências</h1>
-  <a class="btn btn-primary" href="/charges/recurring/new">Nova recorrência</a>
-</div>
-<section class="settings-card">
+<section class="settings-card mb-4" id="recorrentes" aria-labelledby="recurring-title">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <h2 class="h4 mb-0" id="recurring-title">Cobranças Recorrentes</h2>
+    <a class="btn btn-primary" href="/charges/recurring/new">Nova Cobrança Recorrente</a>
+  </div>
   <% if (!seriesRows.length) { %><p class="mb-0">Nenhuma recorrência nesta página.</p><% } else { %>
     <div class="table-responsive">
       <table class="table align-middle">
@@ -17,11 +15,10 @@
       </table>
     </div>
   <% } %>
-  <% if (chargePage > 1 || nextPage) { %>
-    <nav class="d-flex gap-2" aria-label="Paginação">
-      <% if (chargePage > 1) { %><a class="btn btn-light" href="?page=<%= chargePage - 1 %>">Anterior</a><% } %>
-      <% if (nextPage) { %><a class="btn btn-light" href="?page=<%= chargePage + 1 %>">Próxima</a><% } %>
+  <% if (recurringPage > 1 || nextRecurringPage) { %>
+    <nav class="d-flex gap-2" aria-label="Paginação de cobranças recorrentes">
+      <% if (recurringPage > 1) { %><a class="btn btn-light" href="/charges?page=<%= chargePage %>&amp;recurringPage=<%= recurringPage - 1 %>#recorrentes">Anterior</a><% } %>
+      <% if (nextRecurringPage) { %><a class="btn btn-light" href="/charges?page=<%= chargePage %>&amp;recurringPage=<%= recurringPage + 1 %>#recorrentes">Próxima</a><% } %>
     </nav>
   <% } %>
 </section>
-</main></body></html>
