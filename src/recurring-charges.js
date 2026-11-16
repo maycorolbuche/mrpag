@@ -136,7 +136,7 @@ async function scheduleCycle(env, series, today) {
   }
   const integration = await currentIntegration(db, series.account_id);
   if (!integration) return;
-  const customer = { id: series.customer_id, email: series.customer_email, document: series.customer_document };
+  const customer = { id: series.customer_id, name: series.customer_name, email: series.customer_email, document: series.customer_document };
   const insert = insertPixCharge(db, env, { id: crypto.randomUUID(), accountId: series.account_id, integrationId: integration.id,
     customer, description: series.description, cents: series.amount_cents, dueDate: due, actorEmail: series.issuer_email, series });
   await db.batch([insert, advance(next, true)]);
@@ -144,7 +144,7 @@ async function scheduleCycle(env, series, today) {
 
 export async function dispatchRecurringCharges(env) {
   const today = businessDate(new Date());
-  const { results: series } = await env.DB.prepare(`SELECT r.*,u.email AS customer_email,u.document AS customer_document
+  const { results: series } = await env.DB.prepare(`SELECT r.*,u.name AS customer_name,u.email AS customer_email,u.document AS customer_document
     FROM charge_recurring_series r JOIN customers u ON u.id=r.customer_id AND u.account_id=r.account_id
     JOIN payment_integration_defaults d ON d.account_id=r.account_id
     WHERE r.status='active' AND r.next_issue_date<=? AND u.active=1 AND u.email<>'' AND u.document IS NOT NULL
