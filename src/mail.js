@@ -36,7 +36,7 @@ export async function sendRecovery(env, { email, url }) {
   return sendEmail(env, { email, subject: 'Redefina sua senha — MR Pag', text, html });
 }
 
-export const chargeEmailLayoutVersion = 2;
+export const chargeEmailLayoutVersion = 3;
 
 const chargeMessages = {
   charge: {
@@ -68,6 +68,29 @@ const chargeMessages = {
 
 export const isChargeEmailPurpose = purpose => Object.hasOwn(chargeMessages, purpose);
 
+const currentChargeCopy = {
+  charge: {
+    subject: 'Você tem um novo pagamento',
+    introduction: 'Você recebeu uma cobrança. Abra a cobrança para ver como pagar.',
+  },
+  before_due: {
+    subject: 'Aviso de vencimento: faltam 3 dias',
+    introduction: 'Sua cobrança vence em três dias. Confira os dados e pague até a data indicada.',
+  },
+  due_today: {
+    subject: 'Aviso de vencimento: sua cobrança vence hoje',
+    introduction: 'Sua cobrança vence hoje. Abra a cobrança para ver como pagar.',
+  },
+  overdue: {
+    subject: 'Aviso de atraso: sua cobrança venceu há 3 dias',
+    introduction: 'Sua cobrança venceu há três dias. Consulte a situação e fale com o recebedor se precisar de ajuda para pagar.',
+  },
+  confirmation: {
+    subject: 'Pagamento confirmado',
+    introduction: 'Seu pagamento foi confirmado. Você pode consultar os dados da cobrança pelo link.',
+  },
+};
+
 // Resend requires the original request body on retries started before the HTML rollout.
 const legacyIntroductions = {
   charge: 'Você recebeu uma cobrança Pix pelo MR Pag.',
@@ -85,10 +108,16 @@ export function sendChargeEmail(env, { email, bcc, url, amount, dueDate, descrip
     const text = `${legacyIntroductions[purpose]}\n\n${details}\n\nConsulte a cobrança:\n${url}`;
     return sendEmail(env, { email, bcc, subject: `${message.title} — MR Pag`, text, idempotencyKey, beforeSmtpData });
   }
+  // Keep the original subject and content for retries already sent to the provider.
+  const copy = layoutVersion >= 3 ? currentChargeCopy[purpose] : null;
+  const introduction = copy?.introduction ?? message.introduction;
   const text = preview
-    ? `E-MAIL DE TESTE — dados fictícios\n\n${message.introduction}\n\n${details}`
-    : `${message.introduction}\n\n${details}\n\n${message.action}:\n${url}`;
-  const html = emailLayout({ ...message, amount, dueDate, description: displayedDescription, url, preview });
-  const subject = `${preview ? '[Teste] ' : ''}${message.title} — MR Pag`;
+    ? `E-MAIL DE TESTE — dados fictícios\n\n${introduction}\n\n${details}`
+    : `${introduction}\n\n${details}\n\n${message.action}:\n${url}`;
+  const html = emailLayout({
+    ...message, introduction, title: copy ? displayedDescription || copy.subject : message.title,
+    amount, dueDate, description: copy ? null : displayedDescription, url, preview,
+  });
+  const subject = `${preview ? '[Teste] ' : ''}${copy?.subject ?? message.title} — MR Pag`;
   return sendEmail(env, { email, bcc, subject, text, html, idempotencyKey, beforeSmtpData });
 }

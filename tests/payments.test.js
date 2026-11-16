@@ -239,8 +239,9 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   assert.equal(f.messages.length, 1);
   assert.equal(keys[0], 'initial/' + chargeId);
   assert.deepEqual(f.messages[0].to, ['pix@example.com']);
+  assert.equal(f.messages[0].subject, 'Você tem um novo pagamento — MR Pag');
   assert.match(f.messages[0].text, /Descrição: Cobrança de teste/);
-  assert.match(f.messages[0].html, /Cobrança de teste/);
+  assert.match(f.messages[0].html, /<h1[^>]*>Cobrança de teste<\/h1>/);
   assert.deepEqual(f.messages[0].bcc, ['admin@mrpag.local']);
   const url = new URL(f.messages[0].text.match(/https:\/\/[^\s]+/)[0]);
   assert.equal(url.origin, origin);
@@ -252,6 +253,7 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
   assert.match(page.headers.get('x-robots-tag'), /noindex/);
   assert.match(page.text, /codigo-pix-de-teste/);
+  assert.match(page.text, /id="payment-title">Valor a pagar<\/h1>/);
   assert.match(page.text, /<dt>Descrição<\/dt><dd>Cobrança de teste<\/dd>/);
   assert.doesNotMatch(page.text, /pix@example.com|52998224725|João da Silva Neto/);
   const statusUrl = url.pathname + '/status';
@@ -280,6 +282,7 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   assert.equal((await webhook(f)).status, 200);
   const paid = await publicAgent.request(url.pathname);
   assert.match(paid.text, /<strong>Paga<\/strong>/);
+  assert.match(paid.text, /id="payment-title">Valor pago<\/h1>/);
   assert.doesNotMatch(paid.text, /codigo-pix-de-teste|payment-status\.js/);
   assert.deepEqual(JSON.parse((await publicAgent.request(statusUrl)).text), { status: 'paid' });
   await post(f.agent, path, path + '/email', { mail_request_id: crypto.randomUUID() });
@@ -525,7 +528,7 @@ test('lembrete habilitado consulta o Mercado Pago, usa e-mail real e sai uma vez
   const run = () => worker.scheduled({ cron: '*/5 * * * *', scheduledTime });
   await run();
   await run();
-  const reminders = f.messages.filter(message => message.subject.includes('Lembrete'));
+  const reminders = f.messages.filter(message => message.subject.startsWith('Aviso de vencimento'));
   assert.equal(reminders.length, 1);
   assert.deepEqual(reminders[0].to, ['pix@example.com']);
   assert.equal(f.calls.filter(call => call.path === '/v1/orders/' + orderId).length, 1);
@@ -552,7 +555,7 @@ test('lembrete adia falha de consulta e é dispensado se o pagamento já entrou 
   await run();
   assert.deepEqual(await attempt(), { status: 'skipped', result: 'charge_unavailable' });
   assert.equal((await f.db.prepare('SELECT status FROM charges').first()).status, 'paid');
-  assert.equal(f.messages.filter(message => /Lembrete|confirmado/.test(message.subject)).length, 0);
+  assert.equal(f.messages.filter(message => /Aviso de vencimento|confirmado/.test(message.subject)).length, 0);
 });
 
 test('modelos de teste são enviados apenas ao usuário autenticado sem gravar cobranças, fila ou preferências', async t => {
@@ -569,14 +572,20 @@ test('modelos de teste são enviados apenas ao usuário autenticado sem gravar c
   }
   assert.equal((await post(f.agent, path, path + '?preview=unknown', {})).status, 400);
   assert.equal(f.messages.length, models.length);
-  assert.equal(new Set(f.messages.map(message => message.subject)).size, models.length);
+  assert.deepEqual(f.messages.map(message => message.subject), [
+    'Você tem um novo pagamento',
+    'Aviso de vencimento: faltam 3 dias',
+    'Aviso de vencimento: sua cobrança vence hoje',
+    'Aviso de atraso: sua cobrança venceu há 3 dias',
+    'Pagamento confirmado',
+  ].map(subject => `[Teste] ${subject} — MR Pag`));
   for (const message of f.messages) {
     assert.deepEqual(message.to, ['admin@mrpag.local']);
-    assert.match(message.subject, /^\[Teste\]/);
     assert.match(message.html, /E-mail de teste/);
-    assert.match(message.html, /Mensalidade de serviços/);
+    assert.match(message.html, /<h1[^>]*>Mensalidade de serviços — exemplo<\/h1>/);
     assert.doesNotMatch(message.html, /href=/);
     assert.match(message.text, /dados fictícios/);
+    assert.doesNotMatch(message.text + message.html, /\bPix\b/i);
   }
   for (const table of ['charges','charge_emails','charge_notification_settings']) {
     assert.equal((await f.db.prepare(`SELECT count(*) AS total FROM ${table}`).first()).total, 0);

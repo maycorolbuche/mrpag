@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Cobrança Pix · MR Pag</title>
+  <title>Cobrança · MR Pag</title>
   <link rel="icon" href="/assets/favicon.svg">
   <link rel="stylesheet" href="/assets/bootstrap/bootstrap.min.css">
   <link rel="stylesheet" href="/assets/app.css">
@@ -18,10 +18,11 @@
 <main class="payment-main">
   <% if (charge) { %>
     <% const hasPix = charge.status === 'pending' && (charge.pix_image || charge.pix_code); %>
+    <% const amountTitles = { pending: 'Valor a pagar', paid: 'Valor pago' }; %>
     <div class="payment-layout<%= hasPix ? ' payment-layout--pix' : '' %>">
       <section class="payment-summary" aria-labelledby="payment-title">
         <div class="payment-summary__hero">
-          <h1 id="payment-title">Cobrança Pix</h1>
+          <h1 id="payment-title"><%= amountTitles[charge.status] ?? 'Valor da cobrança' %></h1>
           <p class="payment-amount"><%= charge.amount %></p>
           <p class="payment-status payment-status--<%= charge.status %>">
             <span class="visually-hidden">Situação: </span><span class="payment-status__dot" aria-hidden="true"></span><strong><%= charge.label %></strong>
@@ -35,7 +36,7 @@
           </dl>
           <% if (charge.status === 'pending') { %>
             <div class="payment-update">
-              <p>A situação é atualizada automaticamente após a confirmação do Pix.</p>
+              <p>A situação é atualizada automaticamente após a confirmação do pagamento.</p>
               <a href="">Atualizar situação</a>
             </div>
           <% } %>
