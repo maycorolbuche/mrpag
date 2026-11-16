@@ -233,8 +233,9 @@ export default {
       ctx.waitUntil(dispatchRecurringCharges(env));
       if (mailSendingEnabled(env)) {
         const { origin } = configuration(env, new Request('https://scheduled.invalid'));
-        ctx.waitUntil(queueChargeReminders(env.DB, new Date(event.scheduledTime))
-          .finally(() => dispatchChargeEmails(env, origin, refreshChargePayment)));
+        const scheduledAt = new Date(event.scheduledTime);
+        ctx.waitUntil(queueChargeReminders(env.DB, scheduledAt)
+          .finally(() => dispatchChargeEmails(env, origin, refreshChargePayment, scheduledAt)));
       }
     } else {
       ctx.waitUntil(cleanup(env));

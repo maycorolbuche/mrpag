@@ -1,4 +1,4 @@
-import { businessDate, chargeMoney, displayDueDate } from './charge-emails.js';
+import { businessDate, chargeMoney, displayDueDate, inChargeEmailWindow } from './charge-emails.js';
 import { isChargeEmailPurpose, sendChargeEmail } from './mail.js';
 
 const settingsPath = '/account/notifications';
@@ -41,8 +41,7 @@ export async function notificationSettings({ request, url, env, db, accountId, a
 }
 
 export async function queueChargeReminders(db, now = new Date()) {
-  const time = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hourCycle: 'h23' }).format(now);
-  if (Number(time) < 8) return;
+  if (!inChargeEmailWindow(now)) return;
   const today = businessDate(now);
   const timestamp = Date.now();
   if (today !== businessDate(new Date(timestamp))) return;

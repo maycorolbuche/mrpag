@@ -88,7 +88,7 @@ A regra vale para cobranças avulsas e recorrentes. Para desativar a troca, remo
 
 ## Lembretes e confirmação de pagamento
 
-Abra **Minha conta → Configurar e-mails de cobrança**. Ative os lembretes que quiser usar. Os horários seguem Brasília. A fila recebe os avisos a partir das 8h, três dias antes do vencimento, no dia ou três dias depois, de acordo com as opções da conta. O aviso pós-vencimento orienta o cliente a consultar a situação e falar com o recebedor se precisar de um novo Pix.
+Abra **Minha conta → Configurar e-mails de cobrança**. Ative os lembretes que quiser usar. Os horários seguem Brasília. O aviso inicial de uma cobrança avulsa segue no próximo ciclo da fila, a qualquer hora. Avisos de novas cobranças recorrentes e lembretes são enviados das 8h até antes das 10h. Avisos de novas recorrentes enfileirados após essa janela aguardam a próxima manhã, se a cobrança ainda estiver pendente e dentro do vencimento. Os lembretes são enviados três dias antes do vencimento, no dia ou três dias depois, conforme as opções da conta. Envios manuais e confirmações de pagamento seguem a fila normal ao longo do dia. O aviso pós-vencimento orienta o cliente a consultar a situação e falar com o recebedor se precisar de um novo Pix.
 
 Antes de disparar um lembrete, o MR Pag consulta o Mercado Pago. Se a cobrança já estiver paga ou cancelada, a mensagem de cobrança é dispensada. Se a consulta falhar, o histórico registra a falha e agenda uma nova tentativa dentro da janela do aviso.
 

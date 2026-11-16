@@ -231,10 +231,10 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   });
   await configure(f);
   await Promise.all([createCharge(f), createCharge(f)]);
+  const worker = await f.mf.getWorker();
   // The cron has no session and must use the address captured at issuance.
   await f.db.prepare("UPDATE users SET email='operator@example.com' WHERE id=1").run();
-  const worker = await f.mf.getWorker();
-  const run = () => worker.scheduled({ cron: '*/5 * * * *' });
+  const run = () => runChargeCron(worker, '03:00');
   await Promise.all([run(), run()]);
   assert.equal(f.messages.length, 1);
   assert.equal(keys[0], 'initial/' + chargeId);
@@ -270,9 +270,9 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   assert.match(detail.text, /Aceito pelo serviço de e-mail/);
   const mail_request_id = detail.text.match(/name="mail_request_id" value="([^"]+)"/)[1];
   await post(f.agent, path, path + '/email', { mail_request_id });
-  await run();
+  await runChargeCron(worker, '13:00');
   await post(f.agent, path, path + '/email', { mail_request_id });
-  await run();
+  await runChargeCron(worker, '13:00');
   assert.equal(f.messages.length, 2);
   assert.match(keys[1], /^manual\//);
   assert.ok(f.messages[1].text.includes(url.href));
@@ -287,7 +287,7 @@ test('Pix enviado por e-mail tem link público, reenvio idempotente e baixa pelo
   assert.deepEqual(JSON.parse((await publicAgent.request(statusUrl)).text), { status: 'paid' });
   await post(f.agent, path, path + '/email', { mail_request_id: crypto.randomUUID() });
   await post(f.agent, path, path + '/refresh', {});
-  await run();
+  await runChargeCron(worker, '13:00');
   assert.equal(f.messages.length, 3);
   assert.match(f.messages[2].subject, /Pagamento confirmado/);
   assert.equal(keys[2], 'confirmation/' + chargeId);
@@ -307,12 +307,12 @@ test('uma falha temporária do serviço de e-mail é registrada e usa a mesma ch
   await configure(f);
   await createCharge(f);
   const worker = await f.mf.getWorker();
-  await worker.scheduled({ cron: '*/5 * * * *' });
+  await runChargeCron(worker);
   const first = await f.db.prepare('SELECT status,next_at FROM charge_emails').first();
   assert.equal(first.status, 'queued');
   assert.ok(first.next_at > Date.now());
   await f.db.prepare('UPDATE charge_emails SET next_at=0').run();
-  await worker.scheduled({ cron: '*/5 * * * *' });
+  await runChargeCron(worker);
   assert.deepEqual(keys, ['initial/' + chargeId, 'initial/' + chargeId]);
   assert.deepEqual((await f.db.prepare('SELECT result FROM charge_email_attempts ORDER BY number').all())
     .results.map(row => row.result), ['mail_http_503', 'sent']);
@@ -323,14 +323,14 @@ test('cron SMTP registra configuração incompleta e não repete um envio interr
   await configure(f);
   await createCharge(f);
   const worker = await f.mf.getWorker();
-  await worker.scheduled({ cron: '*/5 * * * *' });
+  await runChargeCron(worker);
   assert.equal((await f.db.prepare('SELECT result FROM charge_email_attempts').first()).result, 'mail_not_configured');
 
   await f.db.batch([
     f.db.prepare("UPDATE charge_emails SET status='sending',next_at=0,lease_until=1"),
     f.db.prepare("UPDATE charge_email_attempts SET result='smtp_data_started',finished_at=NULL"),
   ]);
-  await worker.scheduled({ cron: '*/5 * * * *' });
+  await runChargeCron(worker);
   assert.deepEqual(await f.db.prepare('SELECT status,attempt_count FROM charge_emails').first(),
     { status: 'failed', attempt_count: 1 });
   assert.equal((await f.db.prepare('SELECT result FROM charge_email_attempts').first()).result, 'mail_smtp_delivery_unknown');
@@ -409,13 +409,19 @@ test('recorrência gera uma cobrança por ciclo, reutiliza e-mail e permite edit
   assert.match((await f.agent.request('/charges')).text, /Bimestral/);
   const path = root + '/' + id;
   const worker = await f.mf.getWorker();
-  const run = () => worker.scheduled({ cron: '*/5 * * * *' });
+  const run = () => runChargeCron(worker);
   await post(f.agent, path, path + '/pause', {});
   await run();
   assert.equal((await f.db.prepare('SELECT count(*) AS n FROM charges').first()).n, 0);
 
   await post(f.agent, path, path + '/resume', {});
-  await Promise.all([run(), run()]);
+  await Promise.all([runChargeCron(worker, '03:00'), runChargeCron(worker, '03:00')]);
+  for (const hour of ['10:59', '13:00']) {
+    await runChargeCron(worker, hour);
+    assert.equal(f.messages.length, 0);
+    assert.deepEqual(await f.db.prepare('SELECT status,attempt_count FROM charge_emails').first(),
+      { status: 'queued', attempt_count: 0 });
+  }
   await run();
   const charge = await f.db.prepare('SELECT id,amount_cents,due_date,recurring_series_id FROM charges').first();
   assert.equal(charge.recurring_series_id, id);
@@ -481,7 +487,7 @@ test('recorrências aceitam os quatro intervalos e preservam a referência ao aj
   await f.db.prepare(`UPDATE charge_recurring_series SET due_day=31,next_due_date=?,next_issue_date=?
     WHERE id=?`).bind(currentDate, currentDate, ids[3]).run();
   const worker = await f.mf.getWorker();
-  await worker.scheduled({ cron: '*/5 * * * *' });
+  await runChargeCron(worker);
   const targetDay = new Date(Date.UTC(targetYear,2,0)).getUTCDate();
   const expected = `${targetYear}-02-${targetDay}`;
   const actual = await f.db.prepare('SELECT next_due_date FROM charge_recurring_series WHERE id=?').bind(ids[3]).first();
@@ -502,7 +508,7 @@ test('domínio opcional muda somente o e-mail do Mercado Pago na cobrança avuls
   assert.equal(JSON.parse(charge.provider_payload).payer.email, 'pix@mxsoft.com.br');
   assert.equal(charge.notification_email, 'pix@example.com');
   const worker = await f.mf.getWorker();
-  await worker.scheduled({ cron: '*/5 * * * *' });
+  await runChargeCron(worker);
   assert.deepEqual(f.messages[0].to, ['pix@example.com']);
 });
 
@@ -522,6 +528,11 @@ function notificationDate(offset = 0) {
     .format(new Date(Date.now() + offset * 86400000));
 }
 
+function runChargeCron(worker, utcTime = '11:00') {
+  const scheduledTime = Date.parse(`${notificationDate()}T${utcTime}:00Z`);
+  return worker.scheduled({ cron: '*/5 * * * *', scheduledTime });
+}
+
 test('lembrete habilitado consulta o Mercado Pago, usa e-mail real e sai uma vez', async t => {
   const f = await setup(t, { origin: 'https://pag.example.com',
     bindings: { MERCADO_PAGO_PAYER_EMAIL_DOMAIN: 'mxsoft.com.br' }, expectedPayer: 'pix@mxsoft.com.br' });
@@ -531,8 +542,9 @@ test('lembrete habilitado consulta o Mercado Pago, usa e-mail real e sai uma vez
   assert.equal((await post(f.agent, settings, settings, { before_due: 'on', confirmation: 'on' })).status, 303);
   await createCharge(f, { due_date: notificationDate(3) });
   const worker = await f.mf.getWorker();
-  const scheduledTime = Date.parse(notificationDate() + 'T11:00:00Z');
-  const run = () => worker.scheduled({ cron: '*/5 * * * *', scheduledTime });
+  await runChargeCron(worker, '13:00');
+  assert.equal((await f.db.prepare("SELECT count(*) AS n FROM charge_emails WHERE purpose='before_due'").first()).n, 0);
+  const run = () => runChargeCron(worker);
   await run();
   await run();
   const reminders = f.messages.filter(message => message.subject.startsWith('Aviso de vencimento'));
@@ -548,8 +560,7 @@ test('lembrete adia falha de consulta e é dispensado se o pagamento já entrou 
   await post(f.agent, settings, settings, { before_due: 'on' });
   await createCharge(f, { due_date: notificationDate(3) });
   const worker = await f.mf.getWorker();
-  const scheduledTime = Date.parse(notificationDate() + 'T11:00:00Z');
-  const run = () => worker.scheduled({ cron: '*/5 * * * *', scheduledTime });
+  const run = () => runChargeCron(worker);
   f.failRefresh(503);
   await run();
   const attempt = () => f.db.prepare(`SELECT e.status,a.result FROM charge_emails e JOIN charge_email_attempts a
@@ -605,7 +616,7 @@ test('nova tentativa enfileirada antes da atualização preserva o corpo origina
   await createCharge(f);
   await f.db.prepare('UPDATE charge_emails SET attempt_count=1,layout_version=0,next_at=0').run();
   const worker = await f.mf.getWorker();
-  await worker.scheduled({ cron: '*/5 * * * *' });
+  await runChargeCron(worker);
   assert.equal(f.messages.length, 1);
   assert.equal(f.messages[0].html, undefined);
   assert.match(f.messages[0].text, /^Você recebeu uma cobrança Pix pelo MR Pag\./);

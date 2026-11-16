@@ -1,6 +1,13 @@
 import { chargeEmailLayoutVersion, sendChargeEmail } from './mail.js';
 
 export const businessDate = date => new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo' }).format(date);
+const businessHour = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'America/Sao_Paulo', hour: '2-digit', hourCycle: 'h23',
+});
+export function inChargeEmailWindow(date) {
+  const hour = Number(businessHour.format(date));
+  return hour >= 8 && hour < 10;
+}
 export const chargeMoney = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 export const displayDueDate = date => date.split('-').reverse().join('/');
 export const paymentLink = (origin, token) => `${origin}/pay/${token}`;
@@ -8,6 +15,8 @@ export const paymentLink = (origin, token) => `${origin}/pay/${token}`;
 const lease = 120_000;
 const retryDelays = [5, 30, 120].map(minutes => minutes * 60_000);
 const maxAge = 20 * 60 * 60_000;
+// A recurring charge created after the morning window may have to wait until the next day.
+const recurringChargeMaxAge = 48 * 60 * 60_000;
 
 export async function chargeEmailHistory(db, chargeId) {
   const { results } = await db.prepare(`SELECT e.kind,e.purpose,e.recipient,e.status,e.created_at,a.number,a.started_at,a.result
@@ -60,7 +69,7 @@ async function deliver(env, origin, id, refreshPayment) {
   }
 
   const readCharge = () => db.prepare(`SELECT id,account_id,integration_id,provider_api,provider_id,
-    status,due_date,amount_cents,description,public_token FROM charges WHERE id=?`).bind(job.charge_id).first();
+    status,due_date,amount_cents,description,public_token,recurring_series_id FROM charges WHERE id=?`).bind(job.charge_id).first();
   let charge = await readCharge();
   const reminder = job.purpose !== 'charge' && job.purpose !== 'confirmation';
   const today = businessDate(new Date(now));
@@ -82,7 +91,9 @@ async function deliver(env, origin, id, refreshPayment) {
       return;
     }
   }
-  if (now - job.created_at >= maxAge || job.attempt_count > retryDelays.length + 1) {
+  const recurringChargeNotice = job.kind === 'initial' && job.purpose === 'charge' && charge.recurring_series_id !== null;
+  const ageLimit = recurringChargeNotice ? recurringChargeMaxAge : maxAge;
+  if (now - job.created_at >= ageLimit || job.attempt_count > retryDelays.length + 1) {
     await finish(db, job, 'failed', 'retry_window_closed');
     return;
   }
@@ -127,9 +138,12 @@ async function deliver(env, origin, id, refreshPayment) {
   await finish(db, job, retryAt ? 'queued' : 'failed', result, retryAt);
 }
 
-export async function dispatchChargeEmails(env, origin, refreshPayment) {
+export async function dispatchChargeEmails(env, origin, refreshPayment, scheduledAt = new Date()) {
   const now = Date.now();
-  const { results } = await env.DB.prepare(`SELECT id FROM charge_emails WHERE status IN ('queued','sending')
-    AND next_at<=? AND lease_until<=? ORDER BY next_at,id LIMIT 10`).bind(now, now).all();
+  const { results } = await env.DB.prepare(`SELECT e.id FROM charge_emails e JOIN charges c ON c.id=e.charge_id
+    WHERE e.status IN ('queued','sending') AND e.next_at<=? AND e.lease_until<=?
+      AND (? OR e.kind='manual' OR e.purpose='confirmation'
+        OR (e.purpose='charge' AND c.recurring_series_id IS NULL))
+    ORDER BY e.next_at,e.id LIMIT 10`).bind(now, now, Number(inChargeEmailWindow(scheduledAt))).all();
   await Promise.all(results.map(({ id }) => deliver(env, origin, id, refreshPayment)));
 }
