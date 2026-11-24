@@ -106,9 +106,14 @@ test('scheduled cleanup removes expired data and preserves live sessions', async
   await db.prepare("INSERT INTO sessions(token,csrf,expires) VALUES ('old','old',0)").run();
   await db.prepare("INSERT INTO resets(token,user_id,expires) VALUES ('old',1,0)").run();
   await db.prepare("INSERT INTO attempts(key,count,expires) VALUES ('old',1,0)").run();
-  await (await mf.getWorker()).scheduled({ cron: '0 4 * * *' });
+  const worker = await mf.getWorker();
+  const day = new Date().toISOString().slice(0, 10);
+  await worker.scheduled({ cron: '*/5 * * * *', scheduledTime: new Date(day + 'T03:55:00Z') });
+  assert.equal((await db.prepare("SELECT count(*) n FROM sessions WHERE token='old'").first()).n, 1);
+  await worker.scheduled({ cron: '*/5 * * * *', scheduledTime: new Date(day + 'T04:00:00Z') });
   assert.equal((await db.prepare("SELECT count(*) n FROM sessions WHERE token='old'").first()).n, 0);
   assert.equal((await db.prepare('SELECT count(*) n FROM resets').first()).n, 0);
+  assert.equal((await db.prepare("SELECT count(*) n FROM attempts WHERE key='old'").first()).n, 0);
   assert.equal((await a.request('/account/password')).status, 200);
 });
 
