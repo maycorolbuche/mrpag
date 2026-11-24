@@ -229,16 +229,17 @@ export default {
     }
   },
   async scheduled(event, env, ctx) {
+    const scheduledAt = new Date(event.scheduledTime);
+    if (scheduledAt.getUTCHours() === 4 && scheduledAt.getUTCMinutes() === 0) {
+      ctx.waitUntil(cleanup(env));
+    }
     if (event.cron === '*/5 * * * *') {
       ctx.waitUntil(dispatchRecurringCharges(env));
       if (mailSendingEnabled(env)) {
         const { origin } = configuration(env, new Request('https://scheduled.invalid'));
-        const scheduledAt = new Date(event.scheduledTime);
         ctx.waitUntil(queueChargeReminders(env.DB, scheduledAt)
           .finally(() => dispatchChargeEmails(env, origin, refreshChargePayment, scheduledAt)));
       }
-    } else {
-      ctx.waitUntil(cleanup(env));
     }
   },
 };

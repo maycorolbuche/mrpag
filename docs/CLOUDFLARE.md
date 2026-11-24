@@ -79,6 +79,8 @@ npm run deploy
 
 Esse comando aplica as migrations remotas, compila os templates, prepara Bootstrap/CSS/JS e publica tudo junto. Não executa o seed. Confirme as migrations quando o Wrangler perguntar.
 
+O projeto usa um único Cron Trigger, `*/5 * * * *`. Ele processa as recorrências e a fila de e-mails a cada cinco minutos. A limpeza de sessões, recuperações de senha e tentativas expiradas roda nesse mesmo cron, às 04h UTC (01h de Brasília). O deploy atualiza os agendamentos do Worker e remove o antigo trigger diário.
+
 O terminal informa a URL definitiva. Se for diferente da que colocou em `APP_URL`, corrija e execute `npm run deploy` novamente. Neste momento a aplicação ainda pode responder com erro de configuração: falta cadastrar o secret e criar o administrador nos passos seguintes.
 
 ## 5. Criar o secret e o administrador remoto
